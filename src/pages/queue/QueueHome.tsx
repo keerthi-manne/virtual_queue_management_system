@@ -2,9 +2,12 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import QueueLayout from '@/components/queue/QueueLayout';
-import { Ticket, Users, UserCog, LayoutDashboard, ArrowRight } from 'lucide-react';
+import { Ticket, Users, UserCog, LayoutDashboard, ArrowRight, LogIn, LogOut } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 
 const QueueHome = () => {
+  const { user, signOut } = useAuth();
+
   const features = [
     { title: 'Join Queue', description: 'Get a token and join the queue', icon: Ticket, href: '/queue/join', color: 'bg-blue-500' },
     { title: 'Check Status', description: 'Track your position in queue', icon: Users, href: '/queue/status', color: 'bg-green-500' },
@@ -14,6 +17,23 @@ const QueueHome = () => {
 
   return (
     <QueueLayout>
+      <div className="flex justify-end mb-4">
+        {user ? (
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-muted-foreground">{user.email}</span>
+            <Button variant="outline" size="sm" onClick={() => signOut()}>
+              <LogOut className="mr-2 h-4 w-4" /> Sign Out
+            </Button>
+          </div>
+        ) : (
+          <Button asChild variant="outline" size="sm">
+            <Link to="/auth">
+              <LogIn className="mr-2 h-4 w-4" /> Sign In
+            </Link>
+          </Button>
+        )}
+      </div>
+
       <div className="text-center mb-12">
         <h1 className="text-4xl font-bold text-foreground mb-4">Virtual Queue Management</h1>
         <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
