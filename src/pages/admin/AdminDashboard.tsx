@@ -65,12 +65,12 @@ const AdminDashboard = () => {
         {/* Office Filter */}
         <Card>
           <CardContent className="pt-6">
-            <Select value={selectedOffice} onValueChange={setSelectedOffice}>
+            <Select value={selectedOffice || 'all'} onValueChange={(v) => setSelectedOffice(v === 'all' ? '' : v)}>
               <SelectTrigger className="max-w-xs">
                 <SelectValue placeholder="All Offices" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Offices</SelectItem>
+                <SelectItem value="all">All Offices</SelectItem>
                 {offices.map(o => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
               </SelectContent>
             </Select>

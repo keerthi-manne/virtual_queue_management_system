@@ -3,17 +3,37 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Menu, X, Users, UserCog, LayoutDashboard, Ticket } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import ThemeToggle from '@/components/ThemeToggle';
+import { useUserRole } from '@/hooks/useUserRole';
 
 const QueueHeader = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const navigate = useNavigate();
+  const { role, loading } = useUserRole();
 
-  const navItems = [
-    { name: 'Join Queue', href: '/queue/join', icon: Ticket },
-    { name: 'Check Status', href: '/queue/status', icon: Users },
-    { name: 'Staff Panel', href: '/staff', icon: UserCog },
-    { name: 'Admin', href: '/admin', icon: LayoutDashboard },
-  ];
+  // Role-based navigation items
+  const getNavItems = () => {
+    if (loading || !role) return [];
+
+    switch (role) {
+      case 'USER':
+        return [
+          { name: 'Join Queue', href: '/queue/join', icon: Ticket },
+          { name: 'Check Status', href: '/queue/status', icon: Users },
+        ];
+      case 'STAFF':
+        return [
+          { name: 'Staff Panel', href: '/staff', icon: UserCog },
+        ];
+      case 'ADMIN':
+        return [
+          { name: 'Admin', href: '/admin', icon: LayoutDashboard },
+        ];
+      default:
+        return [];
+    }
+  };
+
+  const navItems = getNavItems();
 
   return (
     <header className="bg-background border-b border-border sticky top-0 z-50">
