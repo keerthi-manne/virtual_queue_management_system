@@ -21,10 +21,8 @@ export interface Service {
 export interface Counter {
   id: string;
   office_id: string;
-  service_id?: string;
-  name: string;
-  is_active: boolean;
-  current_operator_id?: string;
+  service_id: string;
+  counter_number: number;
   created_at: string;
 }
 

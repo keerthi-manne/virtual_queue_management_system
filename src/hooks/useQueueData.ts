@@ -74,7 +74,12 @@ export function useTokens(serviceId?: string, status?: string) {
 
   const fetchTokens = useCallback(async () => {
     try {
-      let query = supabase.from('tokens').select('*');
+      let query = supabase
+        .from('tokens')
+        .select(`
+          *,
+          counters(id, counter_number, office_id, service_id)
+        `);
       
       if (serviceId) {
         query = query.eq('service_id', serviceId);
@@ -154,7 +159,7 @@ export function useCounters(officeId?: string) {
         query = query.eq('office_id', officeId);
       }
       
-      const { data, error } = await query.order('name');
+      const { data, error } = await query.order('counter_number');
       
       if (error) throw error;
       setCounters(data || []);

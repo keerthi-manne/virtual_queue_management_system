@@ -13,7 +13,7 @@ import QueueLayout from '@/components/queue/QueueLayout';
 import LoadingState from '@/components/queue/LoadingState';
 import EmptyState from '@/components/queue/EmptyState';
 import PriorityBadge from '@/components/queue/PriorityBadge';
-import { Phone, CheckCircle, Users, Clock, BarChart3, LogOut, XCircle } from 'lucide-react';
+import { Phone, CheckCircle, Users, Clock, BarChart3, LogOut, XCircle, Send } from 'lucide-react';
 import { format, differenceInMinutes } from 'date-fns';
 
 const StaffDashboard = () => {
@@ -26,12 +26,18 @@ const StaffDashboard = () => {
   const [selectedCounter, setSelectedCounter] = useState<string>('');
   const [servedCount, setServedCount] = useState(0);
   const [totalHandleTime, setTotalHandleTime] = useState(0);
+  const [requestingTokenId, setRequestingTokenId] = useState<string | null>(null);
 
   const { offices, loading: officesLoading } = useOffices();
   const { services } = useServices(selectedOffice);
   const { counters } = useCounters(selectedOffice);
   const { tokens: waitingTokens, loading: tokensLoading, refetch } = useTokens(selectedService, 'WAITING');
   const { tokens: calledTokens, refetch: refetchCalled } = useTokens(selectedService, 'CALLED');
+
+  // Filter counters by selected service
+  const serviceCounters = selectedService 
+    ? counters.filter(c => c.service_id === selectedService)
+    : counters;
 
   // Filter called tokens for this counter
   const myCalledTokens = calledTokens.filter(t => t.counter_id === selectedCounter);
@@ -52,21 +58,49 @@ const StaffDashboard = () => {
     }
 
     const nextToken = sortedTokens[0];
-    const { error } = await supabase
-      .from('tokens')
-      .update({ 
-        status: 'CALLED', 
-        counter_id: selectedCounter, 
-        called_at: new Date().toISOString() 
-      })
-      .eq('id', nextToken.id);
+    
+    try {
+      // Update token status
+      const { error } = await supabase
+        .from('tokens')
+        .update({ 
+          status: 'CALLED', 
+          counter_id: selectedCounter, 
+          called_at: new Date().toISOString() 
+        })
+        .eq('id', nextToken.id);
 
-    if (error) {
-      toast({ title: 'Error', description: 'Failed to call token', variant: 'destructive' });
-    } else {
-      toast({ title: 'Token Called', description: `Calling ${nextToken.token_label} - ${nextToken.citizen_name}` });
+      if (error) throw error;
+
+      // Send notifications (SMS, WhatsApp, Email)
+      try {
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/notifications/token-called`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tokenId: nextToken.id,
+            counterId: selectedCounter
+          })
+        });
+        
+        if (!response.ok) {
+          console.error('Failed to send notifications');
+        }
+      } catch (notifError) {
+        console.error('Notification error:', notifError);
+        // Don't fail the whole operation if notifications fail
+      }
+
+      toast({ 
+        title: 'Token Called', 
+        description: `Calling ${nextToken.token_label} - ${nextToken.citizen_name}. Notifications sent!` 
+      });
+      
       refetch();
       refetchCalled();
+    } catch (error) {
+      console.error('Error calling token:', error);
+      toast({ title: 'Error', description: 'Failed to call token', variant: 'destructive' });
     }
   };
 
@@ -114,8 +148,56 @@ const StaffDashboard = () => {
   };
 
   const handleSignOut = async () => {
-    await signOut();
-    navigate('/auth');
+    try {
+      await signOut();
+      navigate('/auth', { replace: true });
+    } catch (error) {
+      console.error('Sign out error:', error);
+      toast({ title: 'Error', description: 'Failed to sign out', variant: 'destructive' });
+    }
+  };
+
+  const handleRequestToServe = async (token: Token) => {
+    if (!userRecord?.id) {
+      toast({ title: 'Error', description: 'User ID not found', variant: 'destructive' });
+      return;
+    }
+
+    if (!selectedCounter) {
+      toast({ title: 'Error', description: 'Please select a counter first', variant: 'destructive' });
+      return;
+    }
+
+    setRequestingTokenId(token.id);
+    
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/staff-requests`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          staffId: userRecord.id,
+          tokenId: token.id,
+          counterId: selectedCounter,
+          reason: `Request to serve ${token.citizen_name} - Priority: ${token.priority}`
+        })
+      });
+
+      if (!response.ok) throw new Error('Failed to create request');
+
+      toast({
+        title: 'Request Sent',
+        description: `Your request to serve ${token.token_label} has been sent to admin for approval.`,
+      });
+    } catch (error) {
+      console.error('Error creating request:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to send request. Please try again.',
+        variant: 'destructive'
+      });
+    } finally {
+      setRequestingTokenId(null);
+    }
   };
 
   const avgHandleTime = servedCount > 0 ? Math.round(totalHandleTime / servedCount) : 0;
@@ -152,10 +234,10 @@ const StaffDashboard = () => {
                   {services.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                 </SelectContent>
               </Select>
-              <Select value={selectedCounter} onValueChange={setSelectedCounter} disabled={!selectedOffice}>
+              <Select value={selectedCounter} onValueChange={setSelectedCounter} disabled={!selectedService}>
                 <SelectTrigger><SelectValue placeholder="Select Your Counter" /></SelectTrigger>
                 <SelectContent>
-                  {counters.filter(c => c.is_active).map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                  {serviceCounters.map(c => <SelectItem key={c.id} value={c.id}>Counter {c.counter_number}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -263,6 +345,15 @@ const StaffDashboard = () => {
                       <span className="text-sm text-muted-foreground">
                         Joined {format(new Date(token.joined_at), 'HH:mm')}
                       </span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleRequestToServe(token)}
+                        disabled={requestingTokenId === token.id}
+                      >
+                        <Send className="h-4 w-4 mr-1" />
+                        {requestingTokenId === token.id ? 'Requesting...' : 'Request to Serve'}
+                      </Button>
                     </div>
                   </div>
                 ))}

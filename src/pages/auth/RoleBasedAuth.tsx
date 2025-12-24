@@ -68,24 +68,7 @@ const RoleBasedAuth = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  // Auto-redirect if already authenticated
-  useEffect(() => {
-    const checkAndRedirect = async () => {
-      if (user && !authLoading) {
-        const { data } = await supabase
-          .from('users')
-          .select('*')
-          .eq('auth_user_id', user.id)
-          .maybeSingle();
-
-        if (data?.role) {
-          const config = Object.values(roleConfig).find(c => c.dbRole === data.role);
-          if (config) navigate(config.redirectPath);
-        }
-      }
-    };
-    checkAndRedirect();
-  }, [user, authLoading, navigate]);
+  // Redirect only after successful login - not auto-redirect on page load
 
   const validateForm = () => {
     const dataToValidate: Record<string, string> = { email, password };
@@ -228,12 +211,27 @@ const RoleBasedAuth = () => {
       <div className="min-h-screen flex flex-col bg-muted/30">
         {/* Header */}
         <header className="bg-background border-b py-4">
-          <div className="container mx-auto px-4 flex items-center gap-3">
-            <Building2 className="h-8 w-8 text-primary" />
-            <div>
-              <h1 className="text-xl font-bold">Queue Management System</h1>
-              <p className="text-sm text-muted-foreground">Municipal Services Portal</p>
+          <div className="container mx-auto px-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Building2 className="h-8 w-8 text-primary" />
+              <div>
+                <h1 className="text-xl font-bold">Queue Management System</h1>
+                <p className="text-sm text-muted-foreground">Municipal Services Portal</p>
+              </div>
             </div>
+            {user && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={async () => {
+                  await signOut();
+                  setSelectedRole(null);
+                  toast({ title: "Signed out", description: "Please sign in to continue" });
+                }}
+              >
+                Sign Out
+              </Button>
+            )}
           </div>
         </header>
 
