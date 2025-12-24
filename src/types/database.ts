@@ -1,5 +1,6 @@
 export type Priority = 'NORMAL' | 'SENIOR' | 'DISABLED' | 'EMERGENCY';
 export type TokenStatus = 'WAITING' | 'CALLED' | 'COMPLETED' | 'NO_SHOW';
+export type UserRole = 'USER' | 'STAFF' | 'ADMIN';
 
 export interface Office {
   id: string;
@@ -31,6 +32,7 @@ export interface Token {
   id: string;
   token_label: string;
   service_id: string;
+  citizen_id?: string;
   citizen_name: string;
   citizen_phone?: string;
   priority: Priority;
@@ -45,9 +47,11 @@ export interface Token {
 
 export interface User {
   id: string;
+  auth_user_id: string;
   email: string;
   name: string;
-  role: 'admin' | 'operator' | 'citizen';
+  phone?: string;
+  role: UserRole;
   office_id?: string;
   created_at: string;
 }
