@@ -79,10 +79,11 @@ const CitizenDashboard = () => {
   }, [userRecord, form]);
 
   const generateTokenLabel = () => {
-    const prefix = 'TKN';
-    const timestamp = Date.now().toString(36).toUpperCase();
-    const random = Math.random().toString(36).substring(2, 5).toUpperCase();
-    return `${prefix}-${timestamp}-${random}`;
+    // Generate token in format: A001, B042, etc.
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const prefix = letters[Math.floor(Math.random() * letters.length)];
+    const number = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    return `${prefix}${number}`;
   };
 
   const calculatePriority = (data: FormData): Priority => {
@@ -133,8 +134,14 @@ const CitizenDashboard = () => {
       if (error) throw error;
 
       toast({
-        title: 'Successfully joined the queue!',
-        description: `Your token number is ${tokenLabel}`,
+        title: '✅ Successfully joined the queue!',
+        description: (
+          <div className="space-y-1">
+            <p className="text-lg font-bold">Your Token: {tokenLabel}</p>
+            <p className="text-sm">Please keep this token number safe!</p>
+          </div>
+        ),
+        duration: 10000,
       });
 
       form.reset({
@@ -162,8 +169,12 @@ const CitizenDashboard = () => {
   };
 
   const handleSignOut = async () => {
-    await signOut();
-    navigate('/auth');
+    try {
+      await signOut();
+      navigate('/auth', { replace: true });
+    } catch (error) {
+      console.error('Sign out error:', error);
+    }
   };
 
   if (officesLoading || userLoading) {
@@ -186,12 +197,15 @@ const CitizenDashboard = () => {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-2 max-w-md mx-auto">
+        <TabsList className="grid w-full grid-cols-3 max-w-2xl mx-auto">
           <TabsTrigger value="join" className="flex items-center gap-2">
             <Ticket className="h-4 w-4" /> Join Queue
           </TabsTrigger>
           <TabsTrigger value="status" className="flex items-center gap-2">
             <Clock className="h-4 w-4" /> My Tokens
+          </TabsTrigger>
+          <TabsTrigger value="check" className="flex items-center gap-2">
+            <FileText className="h-4 w-4" /> Check Status
           </TabsTrigger>
         </TabsList>
 
@@ -451,6 +465,15 @@ const CitizenDashboard = () => {
                 return (
                   <Card key={token.id} className={token.status === 'CALLED' ? 'border-primary border-2 animate-pulse' : ''}>
                     <CardContent className="pt-6">
+                      {/* Counter Assignment Banner */}
+                      {token.counter_id && token.status === 'CALLED' && (
+                        <div className="mb-4 p-4 bg-primary text-primary-foreground rounded-lg text-center">
+                          <p className="text-sm font-medium mb-2">🎯 You are assigned to</p>
+                          <p className="text-4xl font-bold">Counter {token.counters?.counter_number || '--'}</p>
+                          <p className="text-sm mt-2 opacity-90">Please proceed to the counter now!</p>
+                        </div>
+                      )}
+                      
                       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div className="space-y-2">
                           <div className="flex items-center gap-3">
@@ -466,10 +489,25 @@ const CitizenDashboard = () => {
                         <div className="flex flex-col gap-2 text-right">
                           {token.status === 'WAITING' && (
                             <>
-                              <div className="bg-muted p-3 rounded-lg">
-                                <p className="text-sm text-muted-foreground">Position in Queue</p>
-                                <p className="text-2xl font-bold">#{position || '--'}</p>
-                              </div>
+                              {token.counter_id ? (
+                                <>
+                                  <div className="bg-blue-50 dark:bg-blue-950 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
+                                    <p className="text-sm text-blue-600 dark:text-blue-400 font-medium">Assigned to Counter</p>
+                                    <p className="text-3xl font-bold text-blue-700 dark:text-blue-300">
+                                      {token.counters?.counter_number || '--'}
+                                    </p>
+                                  </div>
+                                  <div className="bg-muted p-3 rounded-lg">
+                                    <p className="text-sm text-muted-foreground">Position at Counter</p>
+                                    <p className="text-2xl font-bold">#{position || '--'}</p>
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="bg-muted p-3 rounded-lg">
+                                  <p className="text-sm text-muted-foreground">Position in Queue</p>
+                                  <p className="text-2xl font-bold">#{position || '--'}</p>
+                                </div>
+                              )}
                               <div className="flex items-center gap-2 text-sm">
                                 <Clock className="h-4 w-4 text-muted-foreground" />
                                 <span>Est. wait: {token.estimated_wait_minutes || '--'} min</span>
@@ -500,6 +538,28 @@ const CitizenDashboard = () => {
                 );
               })
             )}
+          </div>
+        </TabsContent>
+
+        {/* Check Status Tab */}
+        <TabsContent value="check">
+          <div className="max-w-2xl mx-auto">
+            <Card>
+              <CardHeader>
+                <CardTitle>Check Token Status</CardTitle>
+                <CardDescription>Enter any token number to check its current status</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button
+                  onClick={() => navigate('/check-status')}
+                  className="w-full"
+                  size="lg"
+                >
+                  <FileText className="mr-2 h-5 w-5" />
+                  Go to Public Status Check
+                </Button>
+              </CardContent>
+            </Card>
           </div>
         </TabsContent>
       </Tabs>

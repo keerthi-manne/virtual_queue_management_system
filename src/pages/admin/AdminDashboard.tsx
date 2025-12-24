@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Button } from '@/components/ui/button';
 import QueueLayout from '@/components/queue/QueueLayout';
 import LoadingState from '@/components/queue/LoadingState';
+import StaffRequestsManager from '@/components/admin/StaffRequestsManager';
 import { 
   Users, Clock, CheckCircle, TrendingUp, Brain, BarChart3, 
   Sparkles, LogOut, AlertTriangle, UserCheck, Accessibility,
@@ -42,8 +43,12 @@ const AdminDashboard = () => {
   };
 
   const handleSignOut = async () => {
-    await signOut();
-    navigate('/auth');
+    try {
+      await signOut();
+      navigate('/auth', { replace: true });
+    } catch (error) {
+      console.error('Sign out error:', error);
+    }
   };
 
   if (officesLoading || userLoading) {
@@ -246,6 +251,9 @@ const AdminDashboard = () => {
             </div>
           </CardContent>
         </Card>
+
+        {/* Staff Requests Manager */}
+        {userRecord?.id && <StaffRequestsManager adminId={userRecord.id} />}
       </div>
     </QueueLayout>
   );

@@ -21,6 +21,10 @@ const StaffDashboard = lazy(() => import("./pages/staff/StaffDashboard"));
 // Admin Pages
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
 
+// Public Pages
+const CheckStatus = lazy(() => import("./pages/CheckStatus"));
+const PublicTokenStatus = lazy(() => import("./pages/PublicTokenStatus"));
+
 // Other
 const NotFound = lazy(() => import("./pages/NotFound"));
 
@@ -42,8 +46,12 @@ const App = () => (
           <BrowserRouter>
             <Suspense fallback={<LoadingFallback />}>
               <Routes>
-                {/* Auth */}
+                {/* Public Routes */}
                 <Route path="/" element={<Navigate to="/auth" replace />} />
+                <Route path="/check-status" element={<CheckStatus />} />
+                <Route path="/status/:tokenNumber" element={<PublicTokenStatus />} />
+                
+                {/* Auth */}
                 <Route path="/auth" element={<RoleBasedAuth />} />
 
                 {/* Citizen Routes */}
