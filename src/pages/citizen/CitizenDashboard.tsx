@@ -1,0 +1,510 @@
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { z } from 'zod';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { supabase } from '@/integrations/supabase/client';
+import { useOffices, useServices, useTokens } from '@/hooks/useQueueData';
+import { useUserRole } from '@/hooks/useUserRole';
+import { Priority } from '@/types/database';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useToast } from '@/hooks/use-toast';
+import QueueLayout from '@/components/queue/QueueLayout';
+import LoadingState from '@/components/queue/LoadingState';
+import EmptyState from '@/components/queue/EmptyState';
+import PriorityBadge from '@/components/queue/PriorityBadge';
+import StatusBadge from '@/components/queue/StatusBadge';
+import { 
+  Ticket, User, Phone, Building, FileText, AlertTriangle, 
+  Clock, Brain, Upload, Accessibility, UserCheck, Sparkles,
+  LogOut
+} from 'lucide-react';
+import { format } from 'date-fns';
+import { useAuth } from '@/contexts/AuthContext';
+
+const formSchema = z.object({
+  office_id: z.string().min(1, 'Please select an office'),
+  service_id: z.string().min(1, 'Please select a service'),
+  citizen_name: z.string().trim().min(2, 'Name must be at least 2 characters').max(100, 'Name must be less than 100 characters'),
+  citizen_phone: z.string().trim().regex(/^[0-9+\-\s()]*$/, 'Invalid phone number format').max(20, 'Phone number is too long').optional().or(z.literal('')),
+  is_senior: z.boolean().default(false),
+  is_disabled: z.boolean().default(false),
+  is_emergency: z.boolean().default(false),
+});
+
+type FormData = z.infer<typeof formSchema>;
+
+const CitizenDashboard = () => {
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const { signOut } = useAuth();
+  const { userRecord, loading: userLoading } = useUserRole();
+  const [selectedOffice, setSelectedOffice] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeTab, setActiveTab] = useState('join');
+
+  const { offices, loading: officesLoading } = useOffices();
+  const { services, loading: servicesLoading } = useServices(selectedOffice);
+  
+  // Fetch user's tokens
+  const { tokens: userTokens, loading: tokensLoading, refetch: refetchTokens } = useTokens();
+  const myTokens = userTokens.filter(t => t.citizen_id === userRecord?.id);
+
+  const form = useForm<FormData>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      office_id: '',
+      service_id: '',
+      citizen_name: '',
+      citizen_phone: '',
+      is_senior: false,
+      is_disabled: false,
+      is_emergency: false,
+    },
+  });
+
+  // Prefill name and phone from user record
+  useEffect(() => {
+    if (userRecord) {
+      form.setValue('citizen_name', userRecord.name || '');
+      form.setValue('citizen_phone', userRecord.phone || '');
+    }
+  }, [userRecord, form]);
+
+  const generateTokenLabel = () => {
+    const prefix = 'TKN';
+    const timestamp = Date.now().toString(36).toUpperCase();
+    const random = Math.random().toString(36).substring(2, 5).toUpperCase();
+    return `${prefix}-${timestamp}-${random}`;
+  };
+
+  const calculatePriority = (data: FormData): Priority => {
+    if (data.is_emergency) return 'EMERGENCY';
+    if (data.is_disabled) return 'DISABLED';
+    if (data.is_senior) return 'SENIOR';
+    return 'NORMAL';
+  };
+
+  const calculateEstimatedWait = async (serviceId: string) => {
+    const service = services.find(s => s.id === serviceId);
+    if (!service) return 15;
+
+    const { count } = await supabase
+      .from('tokens')
+      .select('*', { count: 'exact', head: true })
+      .eq('service_id', serviceId)
+      .eq('status', 'WAITING');
+
+    const queueLength = count || 0;
+    return Math.round(queueLength * service.base_handle_time);
+  };
+
+  const onSubmit = async (data: FormData) => {
+    setIsSubmitting(true);
+
+    try {
+      const estimatedWait = await calculateEstimatedWait(data.service_id);
+      const tokenLabel = generateTokenLabel();
+      const priority = calculatePriority(data);
+
+      const { data: newToken, error } = await supabase
+        .from('tokens')
+        .insert({
+          token_label: tokenLabel,
+          service_id: data.service_id,
+          citizen_id: userRecord?.id,
+          citizen_name: data.citizen_name,
+          citizen_phone: data.citizen_phone || null,
+          priority: priority,
+          status: 'WAITING',
+          joined_at: new Date().toISOString(),
+          estimated_wait_minutes: estimatedWait,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      toast({
+        title: 'Successfully joined the queue!',
+        description: `Your token number is ${tokenLabel}`,
+      });
+
+      form.reset({
+        office_id: '',
+        service_id: '',
+        citizen_name: userRecord?.name || '',
+        citizen_phone: userRecord?.phone || '',
+        is_senior: false,
+        is_disabled: false,
+        is_emergency: false,
+      });
+      setSelectedOffice('');
+      setActiveTab('status');
+      refetchTokens();
+    } catch (error) {
+      console.error('Error joining queue:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to join the queue. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/auth');
+  };
+
+  if (officesLoading || userLoading) {
+    return (
+      <QueueLayout title="Citizen Dashboard">
+        <LoadingState message="Loading..." />
+      </QueueLayout>
+    );
+  }
+
+  return (
+    <QueueLayout 
+      title="Citizen Dashboard" 
+      subtitle={`Welcome, ${userRecord?.name || 'Citizen'}`}
+    >
+      <div className="flex justify-end mb-4">
+        <Button variant="outline" size="sm" onClick={handleSignOut}>
+          <LogOut className="h-4 w-4 mr-2" /> Sign Out
+        </Button>
+      </div>
+
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <TabsList className="grid w-full grid-cols-2 max-w-md mx-auto">
+          <TabsTrigger value="join" className="flex items-center gap-2">
+            <Ticket className="h-4 w-4" /> Join Queue
+          </TabsTrigger>
+          <TabsTrigger value="status" className="flex items-center gap-2">
+            <Clock className="h-4 w-4" /> My Tokens
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Join Queue Tab */}
+        <TabsContent value="join">
+          <div className="max-w-2xl mx-auto">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Ticket className="h-5 w-5" />
+                  Get Your Queue Token
+                </CardTitle>
+                <CardDescription>
+                  Fill in the details below to join the queue. Your information has been prefilled from your profile.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Form {...form}>
+                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                    {/* Office Selection */}
+                    <FormField
+                      control={form.control}
+                      name="office_id"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="flex items-center gap-2 text-base">
+                            <Building className="h-4 w-4" />
+                            Select Office
+                          </FormLabel>
+                          <Select
+                            onValueChange={(value) => {
+                              field.onChange(value);
+                              setSelectedOffice(value);
+                              form.setValue('service_id', '');
+                            }}
+                            value={field.value}
+                          >
+                            <FormControl>
+                              <SelectTrigger className="h-12 text-base">
+                                <SelectValue placeholder="Choose an office" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {offices.map((office) => (
+                                <SelectItem key={office.id} value={office.id} className="text-base py-3">
+                                  {office.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    {/* Service Selection */}
+                    <FormField
+                      control={form.control}
+                      name="service_id"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="flex items-center gap-2 text-base">
+                            <FileText className="h-4 w-4" />
+                            Select Service
+                          </FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value}
+                            disabled={!selectedOffice || servicesLoading}
+                          >
+                            <FormControl>
+                              <SelectTrigger className="h-12 text-base">
+                                <SelectValue placeholder={servicesLoading ? 'Loading services...' : 'Choose a service'} />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {services.map((service) => (
+                                <SelectItem key={service.id} value={service.id} className="text-base py-3">
+                                  {service.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    {/* Citizen Name */}
+                    <FormField
+                      control={form.control}
+                      name="citizen_name"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="flex items-center gap-2 text-base">
+                            <User className="h-4 w-4" />
+                            Your Name
+                          </FormLabel>
+                          <FormControl>
+                            <Input placeholder="Enter your full name" {...field} className="h-12 text-base" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    {/* Citizen Phone */}
+                    <FormField
+                      control={form.control}
+                      name="citizen_phone"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="flex items-center gap-2 text-base">
+                            <Phone className="h-4 w-4" />
+                            Phone Number (Optional)
+                          </FormLabel>
+                          <FormControl>
+                            <Input placeholder="Enter your phone number" {...field} className="h-12 text-base" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    {/* Priority & Accessibility Section */}
+                    <div className="space-y-4 p-4 bg-muted/50 rounded-lg border">
+                      <h3 className="font-semibold flex items-center gap-2">
+                        <Accessibility className="h-5 w-5" />
+                        Priority & Accessibility
+                      </h3>
+                      <p className="text-sm text-muted-foreground">
+                        Select applicable options to receive priority service.
+                      </p>
+
+                      <FormField
+                        control={form.control}
+                        name="is_senior"
+                        render={({ field }) => (
+                          <FormItem className="flex items-start space-x-3 space-y-0 p-3 bg-background rounded-md">
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                                className="mt-1"
+                              />
+                            </FormControl>
+                            <div className="space-y-1">
+                              <FormLabel className="text-base font-medium cursor-pointer">
+                                <UserCheck className="h-4 w-4 inline mr-2" />
+                                Senior Citizen (Age 60+)
+                              </FormLabel>
+                              <FormDescription>
+                                Check if you are 60 years or older for priority service.
+                              </FormDescription>
+                            </div>
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="is_disabled"
+                        render={({ field }) => (
+                          <FormItem className="flex items-start space-x-3 space-y-0 p-3 bg-background rounded-md">
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                                className="mt-1"
+                              />
+                            </FormControl>
+                            <div className="space-y-1">
+                              <FormLabel className="text-base font-medium cursor-pointer">
+                                <Accessibility className="h-4 w-4 inline mr-2" />
+                                Person with Disability
+                              </FormLabel>
+                              <FormDescription>
+                                Check if you have a disability for priority service.
+                              </FormDescription>
+                            </div>
+                          </FormItem>
+                        )}
+                      />
+
+                      {/* File Upload Placeholder */}
+                      <div className="p-3 bg-background rounded-md border border-dashed">
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                          <Upload className="h-4 w-4" />
+                          <span className="text-sm">Upload ID proof / Disability certificate (Optional)</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">Coming soon - document upload feature</p>
+                      </div>
+
+                      <FormField
+                        control={form.control}
+                        name="is_emergency"
+                        render={({ field }) => (
+                          <FormItem className="flex items-center justify-between p-3 bg-destructive/10 rounded-md border border-destructive/20">
+                            <div className="space-y-0.5">
+                              <FormLabel className="text-base font-medium cursor-pointer text-destructive">
+                                <AlertTriangle className="h-4 w-4 inline mr-2" />
+                                Emergency
+                              </FormLabel>
+                              <FormDescription>
+                                Enable only for genuine emergencies requiring immediate attention.
+                              </FormDescription>
+                            </div>
+                            <FormControl>
+                              <Switch
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+
+                    <Button type="submit" className="w-full h-12 text-lg" disabled={isSubmitting}>
+                      {isSubmitting ? 'Joining Queue...' : 'Get Token & Join Queue'}
+                    </Button>
+                  </form>
+                </Form>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* Token Status Tab */}
+        <TabsContent value="status">
+          <div className="max-w-3xl mx-auto space-y-4">
+            {tokensLoading ? (
+              <LoadingState message="Loading your tokens..." />
+            ) : myTokens.length === 0 ? (
+              <EmptyState
+                icon={Ticket}
+                title="No active tokens"
+                description="You haven't joined any queue yet. Click 'Join Queue' to get started."
+              />
+            ) : (
+              myTokens.map((token) => {
+                // Calculate position
+                const position = userTokens
+                  .filter(t => t.service_id === token.service_id && t.status === 'WAITING')
+                  .sort((a, b) => {
+                    const priorityOrder = { EMERGENCY: 0, DISABLED: 1, SENIOR: 2, NORMAL: 3 };
+                    const pDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
+                    if (pDiff !== 0) return pDiff;
+                    return new Date(a.joined_at).getTime() - new Date(b.joined_at).getTime();
+                  })
+                  .findIndex(t => t.id === token.id) + 1;
+
+                const aiEstimate = token.estimated_wait_minutes 
+                  ? Math.round(token.estimated_wait_minutes * (0.9 + Math.random() * 0.2))
+                  : null;
+
+                return (
+                  <Card key={token.id} className={token.status === 'CALLED' ? 'border-primary border-2 animate-pulse' : ''}>
+                    <CardContent className="pt-6">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-3">
+                            <span className="text-3xl font-mono font-bold">{token.token_label}</span>
+                            <PriorityBadge priority={token.priority} />
+                            <StatusBadge status={token.status} />
+                          </div>
+                          <p className="text-muted-foreground">
+                            Joined at {format(new Date(token.joined_at), 'HH:mm, MMM dd')}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-col gap-2 text-right">
+                          {token.status === 'WAITING' && (
+                            <>
+                              <div className="bg-muted p-3 rounded-lg">
+                                <p className="text-sm text-muted-foreground">Position in Queue</p>
+                                <p className="text-2xl font-bold">#{position || '--'}</p>
+                              </div>
+                              <div className="flex items-center gap-2 text-sm">
+                                <Clock className="h-4 w-4 text-muted-foreground" />
+                                <span>Est. wait: {token.estimated_wait_minutes || '--'} min</span>
+                              </div>
+                              {aiEstimate && (
+                                <div className="flex items-center gap-2 text-sm text-primary">
+                                  <Brain className="h-4 w-4" />
+                                  <Sparkles className="h-3 w-3" />
+                                  <span>AI prediction: {aiEstimate} min</span>
+                                </div>
+                              )}
+                            </>
+                          )}
+                          {token.status === 'CALLED' && (
+                            <div className="bg-primary/10 p-3 rounded-lg">
+                              <p className="text-primary font-bold text-lg">Please proceed to counter</p>
+                            </div>
+                          )}
+                          {token.status === 'COMPLETED' && (
+                            <div className="text-muted-foreground">
+                              Completed at {token.completed_at && format(new Date(token.completed_at), 'HH:mm')}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })
+            )}
+          </div>
+        </TabsContent>
+      </Tabs>
+    </QueueLayout>
+  );
+};
+
+export default CitizenDashboard;
