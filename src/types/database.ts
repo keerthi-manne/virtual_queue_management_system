@@ -53,6 +53,31 @@ export interface User {
   phone?: string;
   role: UserRole;
   office_id?: string;
+  counter_id?: string; // Primary counter assignment
+  is_active: boolean; // Whether staff is currently on duty
+  last_login?: string;
+  created_at: string;
+}
+
+export interface StaffSession {
+  id: string;
+  staff_id: string;
+  counter_id: string;
+  office_id: string;
+  login_time: string;
+  logout_time?: string;
+  tokens_served: number;
+  total_handle_time: number;
+  created_at: string;
+}
+
+export interface CounterAssignment {
+  id: string;
+  staff_id: string;
+  counter_id: string;
+  office_id: string;
+  is_primary: boolean; // Primary counter vs backup
+  can_operate: boolean; // Authorization to operate this counter
   created_at: string;
 }
 
@@ -97,6 +122,16 @@ export interface Database {
         Row: User;
         Insert: Partial<User> & { email: string; name: string; role: 'admin' | 'operator' | 'citizen' };
         Update: Partial<User>;
+      };
+      staff_sessions: {
+        Row: StaffSession;
+        Insert: Partial<StaffSession> & { staff_id: string; counter_id: string; office_id: string; login_time: string };
+        Update: Partial<StaffSession>;
+      };
+      counter_assignments: {
+        Row: CounterAssignment;
+        Insert: Partial<CounterAssignment> & { staff_id: string; counter_id: string; office_id: string };
+        Update: Partial<CounterAssignment>;
       };
       metrics_cache: {
         Row: MetricsCache;

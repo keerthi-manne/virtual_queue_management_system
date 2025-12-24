@@ -24,9 +24,18 @@ export function useUserRole() {
         .maybeSingle();
 
       if (error) throw error;
-      setUserRecord(data);
+      
+      if (data) {
+        setUserRecord(data);
+        setError(null);
+      } else {
+        setUserRecord(null);
+        setError('User record not found');
+      }
     } catch (err) {
+      console.error('Error fetching user record:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch user record');
+      setUserRecord(null);
     } finally {
       setLoading(false);
     }

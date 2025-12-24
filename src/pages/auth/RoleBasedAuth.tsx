@@ -74,7 +74,7 @@ const RoleBasedAuth = () => {
       if (user && !authLoading) {
         const { data } = await supabase
           .from('users')
-          .select('role')
+          .select('*')
           .eq('auth_user_id', user.id)
           .maybeSingle();
 
@@ -171,9 +171,9 @@ const RoleBasedAuth = () => {
 
         const { data: userRecord, error: userError } = await supabase
           .from('users')
-          .select('role')
+          .select('*')
           .eq('auth_user_id', authUser.id)
-          .maybeSingle();
+          .single();
 
         if (userError || !userRecord) {
           await supabase.auth.signOut();
@@ -185,7 +185,18 @@ const RoleBasedAuth = () => {
           return;
         }
 
-        if (userRecord.role !== config.dbRole) {
+        // Allow STAFF and ADMIN roles to access staff portal
+        if (selectedRole === 'staff') {
+          if (!['STAFF', 'ADMIN'].includes(userRecord.role)) {
+            await supabase.auth.signOut();
+            toast({ 
+              title: "Access Denied", 
+              description: `This account does not have staff access. Your role is ${userRecord.role}.`, 
+              variant: "destructive" 
+            });
+            return;
+          }
+        } else if (userRecord.role !== config.dbRole) {
           await supabase.auth.signOut();
           toast({ 
             title: "Access Denied", 
