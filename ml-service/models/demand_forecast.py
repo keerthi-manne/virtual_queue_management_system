@@ -1,53 +1,37 @@
 """
 Demand Forecasting Model
-
-This module would contain time-series forecasting for predicting future demand.
-Currently scaffolded for future implementation.
-
-TRAINING APPROACH:
-1. Collect historical demand data (tokens per hour/day)
-2. Aggregate by time intervals
-3. Train time-series model (ARIMA, Prophet, or LSTM)
-4. Forecast future demand
-
-FEATURES TO CONSIDER:
-- Historical demand patterns
-- Day of week
-- Time of day
-- Holidays/special events
-- Seasonal patterns
-- Weather conditions
+Predicts future demand to optimize staff allocation and resource planning
 """
 
-import pandas as pd
 import numpy as np
-from statsmodels.tsa.arima.model import ARIMA
-from typing import Dict, Any, List
-import pickle
-import os
+import pandas as pd
 from datetime import datetime, timedelta
+from typing import Dict, List
+import joblib
+import os
 
-
-class DemandForecastModel:
-    """
-    Time-series forecasting model for demand prediction
-    """
-    
-    def __init__(self, model_type='arima'):
+class DemandForecaster:
+    def __init__(self):
+        self.historical_patterns = {}
+        self.hourly_averages = {}
+        self.weekly_patterns = {}
+        self.is_trained = False
+        
+    def forecast(self,
+                 service_id: str,
+                 hours_ahead: int,
+                 current_time: datetime) -> Dict:
         """
-        Initialize demand forecast model
+        Forecast demand for next N hours
         
         Args:
-            model_type: Type of model ('arima', 'prophet', 'lstm')
+            service_id: Service identifier
+            hours_ahead: Number of hours to forecast
+            current_time: Current timestamp
+            
+        Returns:
+            Dictionary with hourly forecast, confidence intervals, and insights
         """
-        self.model_type = model_type
-        self.model = None
-        self.model_fit = None
-        
-    def train(self, historical_data: pd.DataFrame):
-        """
-        Train demand forecast model
-        
         Args:
             historical_data: DataFrame with columns:
                 - timestamp

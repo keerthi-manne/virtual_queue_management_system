@@ -1,12 +1,23 @@
 # 🎫 Virtual Queue Management System for Municipal Corporations
 
-A comprehensive, production-ready queue management system with real-time updates, AI/ML predictions, and multi-service support.
+A comprehensive, production-ready queue management system with real-time updates, **AI-powered emergency classification**, **multi-channel notifications**, and **document verification**.
+
+## 🌟 NEW in v2.0
+
+- 🤖 **AI Emergency Classification** - Automatically verify emergency claims with confidence scoring
+- 📧 **Multi-Channel Notifications** - Email, SMS, WhatsApp alerts
+- 📄 **Document Upload & Verification** - Upload Aadhaar, disability certificates, medical reports
+- ✅ **Admin Approval Workflow** - Review AI classifications and uploaded documents
+- 🔐 **Age Verification** - Automatic senior citizen verification from DOB
+- 📊 **Audit Logging** - Complete history of all token changes
 
 ## 📋 Table of Contents
 
 - [Overview](#overview)
 - [Features](#features)
+- [New Advanced Features](#new-advanced-features)
 - [Tech Stack](#tech-stack)
+- [Quick Start](#quick-start)
 - [Architecture](#architecture)
 - [Getting Started](#getting-started)
 - [Project Structure](#project-structure)
@@ -21,9 +32,11 @@ A web-based Virtual Queue Management System designed for Municipal Corporations 
 - **Real-time Updates** - Socket.IO-powered live queue updates
 - **Multi-Service Support** - Handle multiple services simultaneously
 - **Priority Queuing** - Special handling for senior citizens, disabled, and emergency cases
-- **AI/ML Predictions** - Wait time prediction, no-show probability, and demand forecasting
+- **AI/ML Predictions** - Wait time prediction, no-show probability, demand forecasting, emergency classification
 - **Staff Management** - Counter panel for staff to manage token flow
 - **Admin Dashboard** - Comprehensive analytics and system management
+- **Notification System** - Multi-channel alerts (Email, SMS, WhatsApp)
+- **Document Verification** - Upload and verify priority claim documents
 
 ## ✨ Features
 
@@ -34,6 +47,9 @@ A web-based Virtual Queue Management System designed for Municipal Corporations 
 - ✅ View live queue position
 - ✅ View predicted wait time
 - ✅ Priority options (Senior/Disabled/Emergency)
+- ✅ **Upload documents** (Aadhaar, certificates, medical reports)
+- ✅ **AI-verified emergency claims**
+- ✅ **Email/SMS notifications** (token created, turn alert, your turn)
 - ✅ Real-time notifications
 - ✅ Cancel tokens
 - ✅ View token history
@@ -51,17 +67,67 @@ A web-based Virtual Queue Management System designed for Municipal Corporations 
 - ✅ Create and manage counters
 - ✅ Assign counters to services
 - ✅ Live queue monitoring
+- ✅ **Review priority verification requests**
+- ✅ **View AI classification results**
+- ✅ **Approve/reject priority claims**
+- ✅ **View uploaded documents**
+- ✅ **Add review notes**
 - ✅ Analytics dashboard
 - ✅ Service reports
 - ✅ Peak hour analysis
 
 ### Advanced Features
-- 🧠 **AI/ML Predictions** - ARIMA-based wait time prediction
+- 🤖 **AI Emergency Classification** - Automatically verify emergency claims with confidence scoring
+- 📧 **Multi-Channel Notifications** - Email, SMS, WhatsApp alerts for citizens
+- 📄 **Document Verification** - Upload and verify Aadhaar, disability certificates, medical reports
+- 🔐 **Age Verification** - Automatic senior citizen verification from date of birth
+- ✅ **Admin Approval Workflow** - Review AI classifications and uploaded documents
+- 🧠 **AI/ML Predictions** - ARIMA-based wait time prediction, no-show probability, demand forecasting
 - 🔄 **Real-time Updates** - Socket.IO for instant notifications
 - 📊 **Analytics** - Comprehensive reporting and insights
 - 🔐 **Role-based Access** - Citizen, Staff, Admin roles
 - 📱 **Responsive Design** - Works on desktop and mobile
 - ♿ **Accessibility** - WCAG compliant design
+- 📝 **Audit Logging** - Complete history tracking of all changes
+
+## 🆕 New Advanced Features
+
+### 1. AI Emergency Classification
+- Automatically classifies emergency claims as genuine, suspicious, or false
+- Confidence scoring (0.0 to 1.0)
+- Auto-approval for high-confidence genuine emergencies (≥0.8)
+- Admin review queue for suspicious cases
+- Keyword analysis (medical, legal, death, pregnancy)
+- Pattern detection for false claims
+
+### 2. Multi-Channel Notifications
+- **Email** notifications via Gmail SMTP
+- **SMS** notifications via Twilio
+- **WhatsApp** Business API integration
+- Notification types: Token created, position updates, turn alert, your turn, priority approved/rejected
+- User preference management
+- Retry logic and delivery tracking
+
+### 3. Document Upload & Verification
+- Upload Aadhaar cards for age verification
+- Upload disability certificates
+- Upload medical reports for emergencies
+- Supabase Storage integration
+- Support for JPG, PNG, PDF (max 5MB)
+- Document verification status tracking
+
+### 4. Age Verification System
+- Automatic age calculation from date of birth
+- Senior citizen verification (60+ years)
+- Aadhaar format validation (12 digits)
+- Optional last 4 digits entry
+
+### 5. Admin Approval Workflow
+- View pending verification requests
+- See AI classification results with confidence scores
+- Download and view uploaded documents
+- Approve or reject with detailed notes
+- Real-time updates via Supabase subscriptions
 
 ## 🛠️ Tech Stack
 
@@ -82,6 +148,8 @@ A web-based Virtual Queue Management System designed for Municipal Corporations 
 - **TypeScript** - Type-safe backend
 - **Socket.IO** - WebSocket server
 - **Supabase** - PostgreSQL database + Auth
+- **Nodemailer** - Email notifications
+- **Twilio** - SMS/WhatsApp notifications
 - **Redis** (optional) - Queue state caching
 
 ### AI/ML Service
@@ -92,11 +160,14 @@ A web-based Virtual Queue Management System designed for Municipal Corporations 
 - **XGBoost** - Gradient boosting
 - **pandas** - Data manipulation
 - **numpy** - Numerical computing
+- **Rule-based Classifier** - Emergency claim verification
 
-### Database
+### Database & Storage
 - **PostgreSQL** (via Supabase)
+- **Supabase Storage** - Document uploads
 - **Row Level Security** - Fine-grained access control
 - **Real-time subscriptions** - Live data updates
+- **5 New Tables** - Verification requests, documents, notifications, preferences, history
 
 ## 🏗️ Architecture
 
@@ -110,27 +181,88 @@ A web-based Virtual Queue Management System designed for Municipal Corporations 
        │
 ┌──────┴──────┐
 │   Backend   │  Node.js + Express + Socket.IO
-│   Server    │  Queue Engine + Business Logic
+│   Server    │  Queue Engine + Notification Service
 └──────┬──────┘
        │
-       ├─────────────┐
-       │             │
-┌──────┴──────┐ ┌───┴────────┐
-│  Supabase   │ │ ML Service │
-│  PostgreSQL │ │  FastAPI   │
-│  + Auth     │ │  (Python)  │
-└─────────────┘ └────────────┘
+       ├─────────────┬──────────────┐
+       │             │              │
+┌──────┴──────┐ ┌───┴────────┐ ┌──┴──────────┐
+│  Supabase   │ │ ML Service │ │   Twilio    │
+│  PostgreSQL │ │  FastAPI   │ │  SMS/WhatsApp│
+│+ Auth       │ │+ AI Classify│ │             │
+│+ Storage    │ │            │ │   Gmail     │
+└─────────────┘ └────────────┘ │   SMTP      │
+                                └─────────────┘
 ```
 
 ### Key Components
 
 1. **Queue Engine** - Core business logic for token management
 2. **Socket Service** - Real-time WebSocket communication
-3. **ML Service** - Predictive analytics (wait time, no-show, demand)
-4. **Notification Service** - Multi-channel notifications
-5. **Authentication** - Supabase Auth with role-based access
+3. **ML Service** - Predictive analytics + AI emergency classification
+4. **Notification Service** - Multi-channel email/SMS/WhatsApp notifications
+5. **Document Service** - File upload and verification
+6. **Authentication** - Supabase Auth with role-based access
+7. **Admin Workflow** - Priority verification and approval
 
-## 🚀 Getting Started
+## 🚀 Quick Start (10 Minutes)
+
+**See [QUICK-START.md](QUICK-START.md) for the fastest setup!**
+
+### What You Need:
+1. ✅ Node.js 18+ and npm
+2. ✅ Python 3.9+
+3. ✅ Supabase account
+4. ✅ Gmail account (for notifications)
+
+### Setup Steps:
+
+1. **Database Migration** (2 min)
+   - Run [supabase-migrations/priority-verification-system.sql](supabase-migrations/priority-verification-system.sql) in Supabase SQL Editor
+
+2. **Create Storage Bucket** (1 min)
+   - Supabase → Storage → New bucket: `queue-documents` (public)
+
+3. **Gmail Setup** (3 min)
+   - Enable 2FA
+   - Generate app password
+   - Add to `server/.env`
+
+4. **Install & Start** (4 min)
+   ```bash
+   # Install
+   npm install
+   cd server && npm install nodemailer twilio
+   cd ../ml-service && pip install -r requirements.txt
+   
+   # Start all services
+   npm run dev                    # Terminal 1: Frontend
+   cd server && npm run dev       # Terminal 2: Backend
+   cd ml-service && python app.py # Terminal 3: ML Service
+   ```
+
+🎉 **Done!** Visit http://localhost:8080
+
+---
+
+## 📚 Comprehensive Documentation
+
+### Getting Started
+- **[QUICK-START.md](QUICK-START.md)** - 10-minute setup guide
+- **[COMPLETE-SETUP-GUIDE.md](COMPLETE-SETUP-GUIDE.md)** - Full installation instructions
+
+### Advanced Features (New!)
+- **[ADVANCED-FEATURES-GUIDE.md](ADVANCED-FEATURES-GUIDE.md)** - AI classification, notifications, document verification
+- **[NOTIFICATION-SETUP-GUIDE.md](NOTIFICATION-SETUP-GUIDE.md)** - Email/SMS/WhatsApp configuration
+- **[IMPLEMENTATION-SUMMARY.md](IMPLEMENTATION-SUMMARY.md)** - What was built and how to use it
+
+### Feature Guides
+- **[STAFF-MANAGEMENT-README.md](STAFF-MANAGEMENT-README.md)** - Counter panel and staff workflows
+- **[AI-WAIT-TIME-PREDICTION.md](AI-WAIT-TIME-PREDICTION.md)** - ML prediction models
+
+---
+
+## 🚀 Getting Started (Detailed)
 
 ### Prerequisites
 
@@ -138,6 +270,8 @@ A web-based Virtual Queue Management System designed for Municipal Corporations 
 - Python 3.9+
 - Supabase account
 - Git
+- Gmail account (for notifications)
+- Twilio account (optional, for SMS/WhatsApp)
 
 ### 1. Clone the Repository
 
@@ -160,20 +294,22 @@ VITE_SUPABASE_URL=your_supabase_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 VITE_API_URL=http://localhost:5000/api
 VITE_SOCKET_URL=http://localhost:5000
+VITE_ML_SERVICE_URL=http://localhost:8000
 
 # Start development server
 npm run dev
 ```
 
-Frontend will be available at `http://localhost:5173`
+Frontend will be available at `http://localhost:8080`
 
 ### 3. Setup Backend
 
 ```bash
 cd server
 
-# Install dependencies
+# Install dependencies (including new ones)
 npm install
+npm install nodemailer twilio
 
 # Create .env file
 cp .env.example .env
@@ -184,8 +320,19 @@ NODE_ENV=development
 SUPABASE_URL=your_supabase_url
 SUPABASE_ANON_KEY=your_supabase_anon_key
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-CLIENT_URL=http://localhost:5173
+CLIENT_URL=http://localhost:8080
 ML_SERVICE_URL=http://localhost:8000
+
+# Gmail notifications (REQUIRED)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASSWORD=your-gmail-app-password
+
+# Twilio (optional - for SMS/WhatsApp)
+TWILIO_ACCOUNT_SID=your_account_sid
+TWILIO_AUTH_TOKEN=your_auth_token
+TWILIO_PHONE_NUMBER=+1234567890
 
 # Start development server
 npm run dev

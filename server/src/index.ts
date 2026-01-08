@@ -3,16 +3,18 @@ import cors from 'cors';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import dotenv from 'dotenv';
+
+// Load environment variables FIRST before any other imports that use them
+dotenv.config();
+
 import { initSocketService } from './services/socketService';
+import './services/notification.service'; // Initialize notification service
 import authRoutes from './routes/auth.routes';
 import queueRoutes from './routes/queue.routes';
 import adminRoutes from './routes/admin.routes';
 import staffRoutes from './routes/staff.routes';
 import notificationRoutes from './routes/notification.routes';
 import staffRequestsRoutes from './routes/staff-requests.routes';
-
-// Load environment variables
-dotenv.config();
 
 const app: Express = express();
 const httpServer = createServer(app);

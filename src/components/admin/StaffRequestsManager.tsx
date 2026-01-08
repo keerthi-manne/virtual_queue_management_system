@@ -52,16 +52,24 @@ export default function StaffRequestsManager({ adminId }: StaffRequestsManagerPr
   const fetchRequests = async () => {
     try {
       const response = await fetch(`${import.meta.env.VITE_API_URL}/staff-requests?status=PENDING`);
-      if (!response.ok) throw new Error('Failed to fetch requests');
+      
+      // Silently handle 404 - no pending requests or endpoint not available
+      if (response.status === 404) {
+        setRequests([]);
+        setLoading(false);
+        return;
+      }
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch requests');
+      }
+      
       const data = await response.json();
       setRequests(data);
     } catch (error) {
       console.error('Error fetching requests:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load staff requests',
-        variant: 'destructive'
-      });
+      // Don't show error toast - fails silently in background
+      setRequests([]);
     } finally {
       setLoading(false);
     }
