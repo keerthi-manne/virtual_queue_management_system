@@ -1,53 +1,56 @@
 """
-Random Forest No-Show Prediction Model
-
-This module would contain the Random Forest classifier for predicting no-show probability.
-Currently scaffolded for future implementation.
-
-TRAINING APPROACH:
-1. Collect historical token data with no-show labels
-2. Extract relevant features
-3. Train Random Forest classifier
-4. Evaluate on test set
-5. Fine-tune hyperparameters
-
-FEATURES TO EXTRACT:
-- Queue position
-- Priority level (one-hot encoded)
-- Time of day (hour)
-- Day of week
-- Service type
-- Estimated wait time
-- Weather conditions (optional)
-- Historical user no-show rate (if available)
+No-Show Prediction Model using Random Forest
+Predicts probability that a customer will not show up for their token
 """
 
-import pandas as pd
 import numpy as np
+import pandas as pd
+from datetime import datetime
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, roc_auc_score
-from typing import Dict, Any
-import pickle
+from typing import Dict, List
+import joblib
 import os
 
-
-class RandomForestNoShowModel:
-    """
-    Random Forest classifier for no-show prediction
-    """
-    
-    def __init__(self, n_estimators=100, max_depth=10):
+class NoShowPredictor:
+    def __init__(self):
+        self.model = None
+        self.scaler = StandardScaler()
+        self.is_trained = False
+        
+        # Default probabilities based on domain knowledge
+        self.default_probabilities = {
+            'emergency': 0.02,  # Emergency cases rarely no-show
+            'disabled': 0.05,
+            'senior': 0.08,
+            'normal': 0.12
+        }
+        
+    def predict(self,
+                token_id: str,
+                service_id: str,
+                priority: str,
+                queue_position: int,
+                day_of_week: int,
+                hour_of_day: int,
+                estimated_wait: int = 0) -> Dict:
         """
-        Initialize Random Forest model
+        Predict no-show probability
         
         Args:
-            n_estimators: Number of trees
-            max_depth: Maximum depth of trees
+            token_id: Token identifier
+            service_id: Service identifier
+            priority: Priority level
+            queue_position: Position in queue
+            day_of_week: 0=Monday, 6=Sunday
+            hour_of_day: 0-23
+            estimated_wait: Estimated wait time in minutes
+            
+        Returns:
+            Dictionary with probability, confidence, and risk level
         """
-        self.model = RandomForestClassifier(
-            n_estimators=n_estimators,
-            max_depth=max_depth,
             random_state=42
         )
         self.feature_names = []

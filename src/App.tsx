@@ -20,6 +20,7 @@ const StaffDashboard = lazy(() => import("./pages/staff/StaffDashboard"));
 
 // Admin Pages
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
+const AIInsights = lazy(() => import("./pages/admin/AIInsights"));
 
 // Public Pages
 const CheckStatus = lazy(() => import("./pages/CheckStatus"));
@@ -88,6 +89,14 @@ const App = () => (
                   element={
                     <ProtectedRoute requiredRole="ADMIN">
                       <AdminDashboard />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/admin/ai-insights" 
+                  element={
+                    <ProtectedRoute requiredRole="ADMIN">
+                      <AIInsights />
                     </ProtectedRoute>
                   } 
                 />
