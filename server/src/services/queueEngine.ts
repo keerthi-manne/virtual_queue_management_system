@@ -16,6 +16,7 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 import { notifyQueueUpdate, notifyTokenUpdate } from './socketService';
 import { predictWaitTime } from './mlService';
+import { notificationService } from './notification.service';
 
 /**
  * Priority weights for queue ordering
@@ -240,6 +241,26 @@ export class QueueEngine {
       // Notify via Socket.IO
       notifyQueueUpdate(counter.service_id);
       notifyTokenUpdate(updatedToken.id, updatedToken);
+
+      // Send notification to user (email + SMS + WhatsApp)
+      try {
+        const { data: user } = await supabaseAdmin
+          .from('users')
+          .select('id')
+          .eq('id', updatedToken.citizen_id)
+          .single();
+
+        if (user) {
+          await notificationService.notifyYourTurn(user.id, updatedToken.id, {
+            tokenLabel: updatedToken.token_label,
+            counterNumber: counter.counter_number || 'N/A',
+            serviceName: counter.service?.name || 'Service',
+            officeName: 'Main Municipal Office'
+          });
+        }
+      } catch (notifError) {
+        console.error('Failed to send token called notification:', notifError);
+      }
 
       return updatedToken;
     } catch (error) {

@@ -84,7 +84,7 @@ const JoinQueue = () => {
           citizen_name: data.citizen_name,
           citizen_phone: data.citizen_phone || null,
           priority: data.priority,
-          status: 'WAITING',
+          status: 'waiting',
           joined_at: new Date().toISOString(),
           estimated_wait_minutes: estimatedWait,
         })

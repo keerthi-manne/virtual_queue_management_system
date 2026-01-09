@@ -22,7 +22,7 @@ const formSchema = z.object({
   serviceId: z.string().min(1, 'Please select a service'),
   name: z.string().trim().min(2, 'Name must be at least 2 characters').max(100),
   phone: z.string().trim().regex(/^[0-9+\-\s()]*$/, 'Invalid phone number').max(20).optional().or(z.literal('')),
-  priority: z.enum(['normal', 'senior', 'disabled', 'emergency'] as const),
+  priority: z.enum(['NORMAL', 'SENIOR', 'DISABLED', 'EMERGENCY'] as const),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -56,7 +56,7 @@ export default function JoinQueueNew() {
       serviceId: '',
       name: '',
       phone: '',
-      priority: 'normal',
+      priority: 'NORMAL',
     },
   });
 

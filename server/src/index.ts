@@ -15,6 +15,7 @@ import adminRoutes from './routes/admin.routes';
 import staffRoutes from './routes/staff.routes';
 import notificationRoutes from './routes/notification.routes';
 import staffRequestsRoutes from './routes/staff-requests.routes';
+import rescheduleRoutes from './routes/reschedule.routes';
 
 const app: Express = express();
 const httpServer = createServer(app);
@@ -48,6 +49,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/staff', staffRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/staff-requests', staffRequestsRoutes);
+app.use('/api/reschedule', rescheduleRoutes);
 
 // Initialize Socket.IO service
 initSocketService(io);

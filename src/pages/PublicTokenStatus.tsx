@@ -186,7 +186,7 @@ export default function PublicTokenStatus() {
           </CardHeader>
           <CardContent className="space-y-6">
             {/* Status Message */}
-            <Alert className={token.status === 'CALLED' ? 'border-orange-500 bg-orange-50 dark:bg-orange-950' : ''}>
+            <Alert className={token.status === 'called' ? 'border-orange-500 bg-orange-50 dark:bg-orange-950' : ''}>
               <AlertDescription className="text-base font-medium">
                 {getStatusMessage()}
               </AlertDescription>

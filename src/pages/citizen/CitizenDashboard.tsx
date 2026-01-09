@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
@@ -64,9 +64,39 @@ const CitizenDashboard = () => {
   const { offices, loading: officesLoading } = useOffices();
   const { services, loading: servicesLoading } = useServices(selectedOffice);
   
-  // Fetch user's tokens
-  const { tokens: userTokens, loading: tokensLoading, refetch: refetchTokens } = useTokens();
-  const myTokens = userTokens.filter(t => t.citizen_id === userRecord?.id);
+  // Fetch ALL tokens (needed for position calculation)
+  const { tokens: allTokens, loading: allTokensLoading } = useTokens();
+  
+  // Fetch user's own tokens directly
+  const [myTokens, setMyTokens] = useState<any[]>([]);
+  const [tokensLoading, setTokensLoading] = useState(true);
+  
+  const refetchTokens = useCallback(async () => {
+    if (!userRecord?.id) return;
+    setTokensLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('tokens')
+        .select('*, counters(*)')
+        .eq('citizen_id', userRecord.id)
+        .order('joined_at', { ascending: false });
+      
+      if (error) {
+        console.error('Error fetching tokens:', error);
+        toast({ title: 'Error', description: 'Failed to load tokens', variant: 'destructive' });
+      } else {
+        setMyTokens(data || []);
+      }
+    } catch (err) {
+      console.error('Error:', err);
+    } finally {
+      setTokensLoading(false);
+    }
+  }, [userRecord?.id]);
+  
+  useEffect(() => {
+    refetchTokens();
+  }, [refetchTokens]);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -139,7 +169,7 @@ const CitizenDashboard = () => {
           citizen_name: data.citizen_name,
           citizen_phone: data.citizen_phone || null,
           priority: priority,
-          status: 'WAITING',
+          status: 'waiting',
           joined_at: new Date().toISOString(),
           estimated_wait_minutes: estimatedWait,
         })
@@ -658,9 +688,9 @@ const CitizenDashboard = () => {
               />
             ) : (
               myTokens.map((token) => {
-                // Calculate position
-                const position = userTokens
-                  .filter(t => t.service_id === token.service_id && t.status === 'WAITING')
+                // Calculate position using all tokens
+                const position = allTokens
+                  .filter(t => t.service_id === token.service_id && t.status === 'waiting')
                   .sort((a, b) => {
                     const priorityOrder = { EMERGENCY: 0, DISABLED: 1, SENIOR: 2, NORMAL: 3 };
                     const pDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
@@ -674,10 +704,10 @@ const CitizenDashboard = () => {
                   : null;
 
                 return (
-                  <Card key={token.id} className={token.status === 'CALLED' ? 'border-primary border-2 animate-pulse' : ''}>
+                  <Card key={token.id} className={token.status === 'called' ? 'border-primary border-2 animate-pulse' : ''}>
                     <CardContent className="pt-6">
                       {/* Counter Assignment Banner */}
-                      {token.counter_id && token.status === 'CALLED' && (
+                      {token.counter_id && token.status === 'called' && (
                         <div className="mb-4 p-4 bg-primary text-primary-foreground rounded-lg text-center">
                           <p className="text-sm font-medium mb-2">🎯 You are assigned to</p>
                           <p className="text-4xl font-bold">Counter {token.counters?.counter_number || '--'}</p>
@@ -698,7 +728,7 @@ const CitizenDashboard = () => {
                         </div>
 
                         <div className="flex flex-col gap-2 text-right">
-                          {token.status === 'WAITING' && (
+                          {token.status === 'waiting' && (
                             <>
                               {token.counter_id ? (
                                 <>
@@ -732,12 +762,12 @@ const CitizenDashboard = () => {
                               )}
                             </>
                           )}
-                          {token.status === 'CALLED' && (
+                          {token.status === 'called' && (
                             <div className="bg-primary/10 p-3 rounded-lg">
                               <p className="text-primary font-bold text-lg">Please proceed to counter</p>
                             </div>
                           )}
-                          {token.status === 'COMPLETED' && (
+                          {token.status === 'completed' && (
                             <div className="text-muted-foreground">
                               Completed at {token.completed_at && format(new Date(token.completed_at), 'HH:mm')}
                             </div>

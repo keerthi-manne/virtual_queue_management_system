@@ -31,8 +31,8 @@ const StaffDashboard = () => {
   const { offices, loading: officesLoading } = useOffices();
   const { services } = useServices(selectedOffice);
   const { counters } = useCounters(selectedOffice);
-  const { tokens: waitingTokens, loading: tokensLoading, refetch } = useTokens(selectedService, 'WAITING');
-  const { tokens: calledTokens, refetch: refetchCalled } = useTokens(selectedService, 'CALLED');
+  const { tokens: waitingTokens, loading: tokensLoading, refetch } = useTokens(selectedService, 'waiting');
+  const { tokens: calledTokens, refetch: refetchCalled } = useTokens(selectedService, 'called');
 
   // Filter counters by selected service
   const serviceCounters = selectedService 
@@ -64,7 +64,7 @@ const StaffDashboard = () => {
       const { error } = await supabase
         .from('tokens')
         .update({ 
-          status: 'CALLED', 
+          status: 'called', 
           counter_id: selectedCounter, 
           called_at: new Date().toISOString() 
         })
@@ -108,7 +108,7 @@ const StaffDashboard = () => {
     const { error } = await supabase
       .from('tokens')
       .update({ 
-        status: 'COMPLETED', 
+        status: 'completed', 
         completed_at: new Date().toISOString() 
       })
       .eq('id', token.id);
@@ -130,20 +130,49 @@ const StaffDashboard = () => {
   };
 
   const handleNoShow = async (token: Token) => {
-    const { error } = await supabase
-      .from('tokens')
-      .update({ 
-        status: 'NO_SHOW', 
-        completed_at: new Date().toISOString() 
-      })
-      .eq('id', token.id);
+    try {
+      // Call the reschedule API to mark as no-show and create reschedule request
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      const response = await fetch(`${apiUrl}/reschedule/mark-no-show`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tokenId: token.id,
+          staffId: userRecord?.id,
+          reason: 'Citizen did not show up when called'
+        })
+      });
 
-    if (error) {
-      toast({ title: 'Error', description: 'Failed to mark as no-show', variant: 'destructive' });
-    } else {
-      toast({ title: 'No Show', description: `Token ${token.token_label} marked as no-show` });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to mark as no-show');
+      }
+
+      const data = await response.json();
+
+      toast({ 
+        title: 'No Show Marked', 
+        description: `Token ${token.token_label} marked as no-show. Reschedule request sent to ${token.citizen_name}`,
+        variant: 'default'
+      });
+      
+      // Show additional info about notifications
+      setTimeout(() => {
+        toast({
+          title: 'Notifications Sent',
+          description: 'SMS and Email sent to the citizen asking if they want to reschedule',
+        });
+      }, 1500);
+
       refetch();
       refetchCalled();
+    } catch (error: any) {
+      console.error('Error marking no-show:', error);
+      toast({ 
+        title: 'Error', 
+        description: error.message || 'Failed to mark as no-show', 
+        variant: 'destructive' 
+      });
     }
   };
 

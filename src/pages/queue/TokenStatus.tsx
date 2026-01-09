@@ -146,7 +146,7 @@ const TokenStatus = () => {
             </div>
 
             {/* Status-specific content */}
-            {token.status === 'WAITING' && (
+            {token.status === 'waiting' && (
               <div className="grid grid-cols-2 gap-4">
                 <Card className="bg-muted/50">
                   <CardContent className="p-4 text-center">
@@ -167,7 +167,7 @@ const TokenStatus = () => {
               </div>
             )}
 
-            {token.status === 'CALLED' && (
+            {token.status === 'called' && (
               <div className="text-center py-4">
                 <div className="animate-pulse">
                   <ArrowRight className="h-12 w-12 mx-auto text-primary" />
@@ -181,7 +181,7 @@ const TokenStatus = () => {
               </div>
             )}
 
-            {token.status === 'COMPLETED' && (
+            {token.status === 'completed' && (
               <div className="text-center py-4">
                 <p className="text-lg text-muted-foreground">
                   Service completed at: {token.completed_at ? format(new Date(token.completed_at), 'hh:mm a') : '--'}
