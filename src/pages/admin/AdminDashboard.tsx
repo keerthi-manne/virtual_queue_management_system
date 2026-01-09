@@ -34,7 +34,7 @@ const AdminDashboard = () => {
   const { metrics } = useMetrics(selectedOffice);
 
   const activeCounters = counters.filter(c => c.is_active).length;
-  const completedToday = allTokens.filter(t => t.status === 'COMPLETED').length;
+  const completedToday = allTokens.filter(t => t.status === 'completed').length;
   const avgWait = waitingTokens.length > 0 
     ? Math.round(waitingTokens.reduce((acc, t) => acc + (t.estimated_wait_minutes || 0), 0) / waitingTokens.length)
     : 0;

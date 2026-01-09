@@ -25,6 +25,7 @@ const AIInsights = lazy(() => import("./pages/admin/AIInsights"));
 // Public Pages
 const CheckStatus = lazy(() => import("./pages/CheckStatus"));
 const PublicTokenStatus = lazy(() => import("./pages/PublicTokenStatus"));
+const RescheduleConfirmation = lazy(() => import("./pages/RescheduleConfirmation"));
 
 // Other
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -51,6 +52,7 @@ const App = () => (
                 <Route path="/" element={<Navigate to="/auth" replace />} />
                 <Route path="/check-status" element={<CheckStatus />} />
                 <Route path="/status/:tokenNumber" element={<PublicTokenStatus />} />
+                <Route path="/reschedule/:requestId" element={<RescheduleConfirmation />} />
                 
                 {/* Auth */}
                 <Route path="/auth" element={<RoleBasedAuth />} />

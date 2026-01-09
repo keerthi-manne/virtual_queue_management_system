@@ -1,5 +1,5 @@
 export type Priority = 'NORMAL' | 'SENIOR' | 'DISABLED' | 'EMERGENCY';
-export type TokenStatus = 'WAITING' | 'CALLED' | 'COMPLETED' | 'NO_SHOW';
+export type TokenStatus = 'waiting' | 'called' | 'completed' | 'no_show';
 export type UserRole = 'USER' | 'STAFF' | 'ADMIN';
 
 export interface Office {

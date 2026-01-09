@@ -31,7 +31,7 @@ router.post('/', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Token not found' });
     }
 
-    if (token.status !== 'WAITING') {
+    if (token.status !== 'waiting') {
       return res.status(400).json({ error: 'Token is not in WAITING status' });
     }
 
@@ -175,7 +175,7 @@ router.patch('/:id/approve', async (req: Request, res: Response) => {
       .from('tokens')
       .update({
         counter_id: assignedCounterId,
-        status: 'CALLED',
+        status: 'called',
         called_at: new Date().toISOString()
       })
       .eq('id', request.token_id);
