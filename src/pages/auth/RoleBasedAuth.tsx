@@ -68,24 +68,7 @@ const RoleBasedAuth = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  // Auto-redirect if already authenticated
-  useEffect(() => {
-    const checkAndRedirect = async () => {
-      if (user && !authLoading) {
-        const { data } = await supabase
-          .from('users')
-          .select('*')
-          .eq('auth_user_id', user.id)
-          .maybeSingle();
-
-        if (data?.role) {
-          const config = Object.values(roleConfig).find(c => c.dbRole === data.role);
-          if (config) navigate(config.redirectPath);
-        }
-      }
-    };
-    checkAndRedirect();
-  }, [user, authLoading, navigate]);
+  // Redirect only after successful login - not auto-redirect on page load
 
   const validateForm = () => {
     const dataToValidate: Record<string, string> = { email, password };
@@ -225,50 +208,76 @@ const RoleBasedAuth = () => {
   // Role selection screen
   if (!selectedRole) {
     return (
-      <div className="min-h-screen flex flex-col bg-muted/30">
+      <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/40 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 pattern-dots">
         {/* Header */}
-        <header className="bg-background border-b py-4">
-          <div className="container mx-auto px-4 flex items-center gap-3">
-            <Building2 className="h-8 w-8 text-primary" />
-            <div>
-              <h1 className="text-xl font-bold">Queue Management System</h1>
-              <p className="text-sm text-muted-foreground">Municipal Services Portal</p>
+        <header className="bg-white/80 dark:bg-slate-950/80 backdrop-blur-lg border-b-2 border-slate-200 dark:border-slate-800 py-4 shadow-sm">
+          <div className="container mx-auto px-4 flex items-center justify-between">
+            <div className="flex items-center gap-4 group">
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                <Building2 className="h-7 w-7 text-white" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">Queue Management System</h1>
+                <p className="text-sm text-slate-600 dark:text-slate-400 font-medium">Municipal Services Portal</p>
+              </div>
             </div>
+            {user && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={async () => {
+                  await signOut();
+                  setSelectedRole(null);
+                  toast({ title: "Signed out", description: "Please sign in to continue" });
+                }}
+              >
+                Sign Out
+              </Button>
+            )}
           </div>
         </header>
 
         {/* Main content */}
         <main className="flex-1 flex items-center justify-center p-4">
-          <div className="max-w-4xl w-full space-y-8">
-            <div className="text-center space-y-2">
-              <h2 className="text-3xl font-bold">Welcome</h2>
-              <p className="text-muted-foreground text-lg">Select your portal to continue</p>
+          <div className="max-w-5xl w-full space-y-10 animate-fade-in">
+            <div className="text-center space-y-4">
+              <div className="inline-block">
+                <h2 className="text-5xl font-extrabold bg-gradient-to-r from-slate-900 via-blue-900 to-indigo-900 dark:from-slate-100 dark:via-blue-100 dark:to-indigo-100 bg-clip-text text-transparent mb-2">Welcome Back</h2>
+                <div className="h-1 w-32 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-full mx-auto" />
+              </div>
+              <p className="text-slate-600 dark:text-slate-400 text-xl font-medium">Choose your portal to get started</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {(Object.entries(roleConfig) as [RoleOption, typeof roleConfig[RoleOption]][]).map(([key, config]) => {
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              {(Object.entries(roleConfig) as [RoleOption, typeof roleConfig[RoleOption]][]).map(([key, config], idx) => {
                 const Icon = config.icon;
+                const gradients = {
+                  citizen: 'from-blue-500 to-indigo-600',
+                  staff: 'from-purple-500 to-pink-600',
+                  admin: 'from-orange-500 to-red-600'
+                };
                 return (
                   <Card 
                     key={key}
-                    className="cursor-pointer hover:border-primary hover:shadow-lg transition-all duration-200 group"
+                    className="cursor-pointer hover-lift shine-effect border-2 border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-600 bg-white/70 dark:bg-slate-900/70 backdrop-blur-sm shadow-elegant hover:shadow-elegant-lg transition-all duration-300 group animate-fade-in"
+                    style={{ animationDelay: `${idx * 0.1}s` }}
                     onClick={() => {
                       setSelectedRole(key);
                       setIsSignUp(key === 'citizen');
                     }}
                   >
-                    <CardHeader className="text-center pb-2">
-                      <div className="mx-auto w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-4 group-hover:bg-primary/20 transition-colors">
-                        <Icon className="h-8 w-8 text-primary" />
+                    <CardHeader className="text-center pb-4 pt-8">
+                      <div className={`mx-auto w-20 h-20 bg-gradient-to-br ${gradients[key]} rounded-2xl flex items-center justify-center mb-5 shadow-lg group-hover:scale-110 group-hover:rotate-3 transition-all duration-300`}>
+                        <Icon className="h-10 w-10 text-white" />
                       </div>
-                      <CardTitle>{config.title}</CardTitle>
+                      <CardTitle className="text-2xl font-bold bg-gradient-to-r from-slate-900 to-slate-700 dark:from-slate-100 dark:to-slate-300 bg-clip-text text-transparent">{config.title}</CardTitle>
                     </CardHeader>
-                    <CardContent className="text-center">
-                      <p className="text-muted-foreground text-sm">{config.description}</p>
+                    <CardContent className="text-center px-6">
+                      <p className="text-slate-600 dark:text-slate-400 font-medium">{config.description}</p>
                     </CardContent>
-                    <CardFooter className="justify-center">
-                      <Button variant="outline" className="group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
-                        {config.allowSignUp ? 'Sign Up / Sign In' : 'Sign In'}
+                    <CardFooter className="justify-center pb-8 pt-4">
+                      <Button className={`w-full bg-gradient-to-r ${gradients[key]} hover:opacity-90 shadow-lg hover:shadow-xl transition-all duration-300 text-white font-semibold`}>
+                        {config.allowSignUp ? 'Sign Up / Sign In' : 'Sign In'} →
                       </Button>
                     </CardFooter>
                   </Card>
@@ -279,9 +288,11 @@ const RoleBasedAuth = () => {
         </main>
 
         {/* Footer */}
-        <footer className="bg-background border-t py-4">
-          <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-            © {new Date().getFullYear()} Municipal Services. All rights reserved.
+        <footer className="bg-white/70 dark:bg-slate-950/70 backdrop-blur-md border-t-2 border-slate-200 dark:border-slate-800 py-6">
+          <div className="container mx-auto px-4 text-center">
+            <p className="text-sm text-slate-600 dark:text-slate-400 font-medium">
+              © {new Date().getFullYear()} Municipal Services • All rights reserved
+            </p>
           </div>
         </footer>
       </div>
@@ -293,13 +304,13 @@ const RoleBasedAuth = () => {
 
   // Auth form
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center space-y-2">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/40 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 pattern-dots p-4">
+      <Card className="w-full max-w-md shadow-elegant-lg border-2 border-slate-200 dark:border-slate-700 bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm animate-fade-in">
+        <CardHeader className="text-center space-y-4 pt-8 pb-6">
           <Button 
             variant="ghost" 
             size="sm" 
-            className="absolute left-4 top-4"
+            className="absolute left-4 top-4 hover:bg-slate-100 dark:hover:bg-slate-800"
             onClick={() => {
               setSelectedRole(null);
               setErrors({});
@@ -311,13 +322,15 @@ const RoleBasedAuth = () => {
           >
             <ArrowLeft className="h-4 w-4 mr-1" /> Back
           </Button>
-          <div className="mx-auto w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
-            <Icon className="h-6 w-6 text-primary" />
+          <div className="mx-auto w-16 h-16 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg">
+            <Icon className="h-8 w-8 text-white" />
           </div>
-          <CardTitle className="text-2xl font-bold">{config.title}</CardTitle>
-          <CardDescription>
-            {isSignUp ? 'Create your account to get started' : 'Sign in to your account'}
-          </CardDescription>
+          <div>
+            <CardTitle className="text-3xl font-bold bg-gradient-to-r from-slate-900 to-slate-700 dark:from-slate-100 dark:to-slate-300 bg-clip-text text-transparent mb-2">{config.title}</CardTitle>
+            <CardDescription className="text-base">
+              {isSignUp ? 'Create your account to get started' : 'Sign in to your account'}
+            </CardDescription>
+          </div>
         </CardHeader>
 
         <form onSubmit={handleSubmit}>
@@ -381,8 +394,12 @@ const RoleBasedAuth = () => {
             </div>
           </CardContent>
 
-          <CardFooter className="flex flex-col gap-4">
-            <Button type="submit" className="w-full" disabled={loading}>
+          <CardFooter className="flex flex-col gap-4 pb-8">
+            <Button 
+              type="submit" 
+              className="w-full h-12 text-base font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg hover:shadow-xl transition-all duration-300" 
+              disabled={loading}
+            >
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {isSignUp ? 'Create Account' : 'Sign In'}
             </Button>
