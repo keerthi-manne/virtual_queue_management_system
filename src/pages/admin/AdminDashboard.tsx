@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
 import { useOffices, useServices, useTokens, useCounters, useMetrics } from '@/hooks/useQueueData';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useAuth } from '@/contexts/AuthContext';
@@ -10,6 +11,7 @@ import QueueLayout from '@/components/queue/QueueLayout';
 import LoadingState from '@/components/queue/LoadingState';
 import StaffRequestsManager from '@/components/admin/StaffRequestsManager';
 import PriorityVerificationQueue from '@/components/admin/PriorityVerificationQueue';
+import PriorityClaimsReview from '@/components/admin/PriorityClaimsReview';
 import { 
   Users, Clock, CheckCircle, TrendingUp, Brain, BarChart3, 
   Sparkles, LogOut, AlertTriangle, UserCheck, Accessibility,
@@ -29,15 +31,43 @@ const AdminDashboard = () => {
   const { offices, loading: officesLoading } = useOffices();
   const { services } = useServices(selectedOffice);
   const { counters } = useCounters(selectedOffice);
-  const { tokens: waitingTokens } = useTokens(undefined, 'WAITING');
+  const { tokens: waitingTokens } = useTokens(undefined, 'waiting');
   const { tokens: allTokens } = useTokens();
   const { metrics } = useMetrics(selectedOffice);
+  const [verificationStats, setVerificationStats] = useState({ pending: 0, approved: 0, rejected: 0 });
 
-  const activeCounters = counters.filter(c => c.is_active).length;
+  // Debug logging
+  useEffect(() => {
+    console.log('Counters data:', counters);
+    console.log('Total counters:', counters.length);
+    console.log('Active counters:', counters.filter(c => c.is_active).length);
+  }, [counters]);
+
+  const activeCounters = counters.filter(c => c.is_active).length || counters.length;
   const completedToday = allTokens.filter(t => t.status === 'completed').length;
   const avgWait = waitingTokens.length > 0 
-    ? Math.round(waitingTokens.reduce((acc, t) => acc + (t.estimated_wait_minutes || 0), 0) / waitingTokens.length)
+    ? Math.round(waitingTokens.reduce((acc, t) => acc + (t.estimated_wait_time || t.estimated_wait_minutes || 0), 0) / waitingTokens.length)
     : 0;
+
+  // Calculate average handle time from completed tokens
+  const completedTokens = allTokens.filter(t => t.status === 'completed' && t.called_at && t.completed_at);
+  const avgHandleTime = completedTokens.length > 0
+    ? Math.round(completedTokens.reduce((acc, t) => {
+        const called = new Date(t.called_at).getTime();
+        const completed = new Date(t.completed_at).getTime();
+        return acc + ((completed - called) / 60000); // Convert ms to minutes
+      }, 0) / completedTokens.length)
+    : 0;
+
+  // Calculate peak hour from token creation times
+  const hourCounts: Record<number, number> = {};
+  allTokens.forEach(t => {
+    const hour = new Date(t.joined_at || t.created_at).getHours();
+    hourCounts[hour] = (hourCounts[hour] || 0) + 1;
+  });
+  const peakHour = Object.keys(hourCounts).length > 0
+    ? Object.entries(hourCounts).reduce((a, b) => hourCounts[Number(a[0])] > hourCounts[Number(b[0])] ? a : b)[0]
+    : null;
 
   // Priority breakdown
   const priorityBreakdown = {
@@ -46,6 +76,40 @@ const AdminDashboard = () => {
     SENIOR: waitingTokens.filter(t => t.priority === 'SENIOR').length,
     NORMAL: waitingTokens.filter(t => t.priority === 'NORMAL').length,
   };
+
+  // Fetch priority verification stats
+  useEffect(() => {
+    const fetchVerificationStats = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('priority_verification_requests')
+          .select('status');
+        
+        if (error) {
+          console.error('Error fetching verification stats:', error);
+          return;
+        }
+        
+        if (data) {
+          console.log('Priority verification data:', data);
+          const stats = {
+            pending: data.filter(r => r.status === 'PENDING' || r.status === 'ADMIN_REVIEW').length,
+            approved: data.filter(r => r.status === 'APPROVED' || r.status === 'AI_APPROVED').length,
+            rejected: data.filter(r => r.status === 'REJECTED' || r.status === 'AI_REJECTED').length,
+          };
+          console.log('Calculated stats:', stats);
+          setVerificationStats(stats);
+        }
+      } catch (error) {
+        console.error('Failed to fetch verification stats:', error);
+      }
+    };
+
+    fetchVerificationStats();
+    // Refresh stats every 30 seconds
+    const interval = setInterval(fetchVerificationStats, 30 * 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Fetch AI insights
   useEffect(() => {
@@ -187,6 +251,46 @@ const AdminDashboard = () => {
           </Card>
         </div>
 
+        {/* Priority Verification Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in" style={{animationDelay: '0.35s'}}>
+          <Card className="hover-lift shadow-elegant bg-gradient-to-br from-yellow-50 via-yellow-50 to-amber-100 dark:from-yellow-950/30 dark:to-amber-950/30 border-l-4 border-yellow-600">
+            <CardContent className="pt-6 pb-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="p-2 bg-yellow-600 rounded-lg shadow">
+                  <Clock className="h-5 w-5 text-white" />
+                </div>
+                <span className="text-xs font-semibold text-yellow-600 bg-yellow-100 dark:bg-yellow-900/50 px-2 py-1 rounded-full">Priority</span>
+              </div>
+              <p className="text-3xl font-bold bg-gradient-to-r from-yellow-600 to-amber-600 bg-clip-text text-transparent mb-1">{verificationStats.pending}</p>
+              <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Pending Review</p>
+            </CardContent>
+          </Card>
+          <Card className="hover-lift shadow-elegant bg-gradient-to-br from-green-50 via-green-50 to-emerald-100 dark:from-green-950/30 dark:to-emerald-950/30 border-l-4 border-green-600">
+            <CardContent className="pt-6 pb-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="p-2 bg-green-600 rounded-lg shadow">
+                  <CheckCircle className="h-5 w-5 text-white" />
+                </div>
+                <span className="text-xs font-semibold text-green-600 bg-green-100 dark:bg-green-900/50 px-2 py-1 rounded-full">Priority</span>
+              </div>
+              <p className="text-3xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent mb-1">{verificationStats.approved}</p>
+              <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Approved</p>
+            </CardContent>
+          </Card>
+          <Card className="hover-lift shadow-elegant bg-gradient-to-br from-red-50 via-red-50 to-rose-100 dark:from-red-950/30 dark:to-rose-950/30 border-l-4 border-red-600">
+            <CardContent className="pt-6 pb-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="p-2 bg-red-600 rounded-lg shadow">
+                  <AlertTriangle className="h-5 w-5 text-white" />
+                </div>
+                <span className="text-xs font-semibold text-red-600 bg-red-100 dark:bg-red-900/50 px-2 py-1 rounded-full">Priority</span>
+              </div>
+              <p className="text-3xl font-bold bg-gradient-to-r from-red-600 to-rose-600 bg-clip-text text-transparent mb-1">{verificationStats.rejected}</p>
+              <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Rejected</p>
+            </CardContent>
+          </Card>
+        </div>
+
         {/* Priority Breakdown */}
         <Card className="hover-lift animate-fade-in shadow-elegant pattern-dots" style={{animationDelay: '0.4s'}}>
           <CardHeader className="border-b pb-4">
@@ -258,11 +362,11 @@ const AdminDashboard = () => {
               </div>
               <div className="flex justify-between items-center p-3 bg-muted rounded-lg">
                 <span className="text-muted-foreground">Avg Handle Time</span>
-                <span className="font-bold text-lg">{metrics?.avg_handle_time || '--'} min</span>
+                <span className="font-bold text-lg">{metrics?.avg_handle_time || avgHandleTime || '--'} min</span>
               </div>
               <div className="flex justify-between items-center p-3 bg-muted rounded-lg">
                 <span className="text-muted-foreground">Peak Hour</span>
-                <span className="font-bold text-lg">{metrics?.peak_hour ? `${metrics.peak_hour}:00` : '--'}</span>
+                <span className="font-bold text-lg">{metrics?.peak_hour ? `${metrics.peak_hour}:00` : (peakHour ? `${peakHour}:00` : '--')}</span>
               </div>
             </CardContent>
           </Card>
@@ -433,6 +537,9 @@ const AdminDashboard = () => {
             </div>
           </CardContent>
         </Card>
+
+        {/* Priority Claims Review - NEW */}
+        <PriorityClaimsReview />
 
         {/* Priority Verification Queue */}
         <div className="mt-8">

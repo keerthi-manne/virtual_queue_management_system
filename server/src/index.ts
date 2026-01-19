@@ -1,11 +1,10 @@
+// Load environment variables FIRST - this must be the very first import
+import './env';
+
 import express, { Express } from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
-import dotenv from 'dotenv';
-
-// Load environment variables FIRST before any other imports that use them
-dotenv.config();
 
 import { initSocketService } from './services/socketService';
 import './services/notification.service'; // Initialize notification service
@@ -16,6 +15,8 @@ import staffRoutes from './routes/staff.routes';
 import notificationRoutes from './routes/notification.routes';
 import staffRequestsRoutes from './routes/staff-requests.routes';
 import rescheduleRoutes from './routes/reschedule.routes';
+import emailTestRoutes from './routes/email-test.routes';
+import claimRoutes from './routes/claim.routes';
 
 const app: Express = express();
 const httpServer = createServer(app);
@@ -50,6 +51,8 @@ app.use('/api/staff', staffRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/staff-requests', staffRequestsRoutes);
 app.use('/api/reschedule', rescheduleRoutes);
+app.use('/api/email-test', emailTestRoutes);
+app.use('/api/claim', claimRoutes);
 
 // Initialize Socket.IO service
 initSocketService(io);

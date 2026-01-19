@@ -33,6 +33,7 @@ const StaffDashboard = () => {
   const { counters } = useCounters(selectedOffice);
   const { tokens: waitingTokens, loading: tokensLoading, refetch } = useTokens(selectedService, 'waiting');
   const { tokens: calledTokens, refetch: refetchCalled } = useTokens(selectedService, 'called');
+  const { tokens: completedTokens } = useTokens(selectedService, 'completed');
 
   // Filter counters by selected service
   const serviceCounters = selectedService 
@@ -229,7 +230,24 @@ const StaffDashboard = () => {
     }
   };
 
-  const avgHandleTime = servedCount > 0 ? Math.round(totalHandleTime / servedCount) : 0;
+  // Calculate average handle time from completed tokens for this counter TODAY
+  const todayCompletedForCounter = completedTokens.filter(t => {
+    const isToday = t.completed_at && new Date(t.completed_at).toDateString() === new Date().toDateString();
+    const isThisCounter = t.counter_id === selectedCounter;
+    return isToday && isThisCounter && t.called_at && t.completed_at;
+  });
+
+  const avgHandleTime = todayCompletedForCounter.length > 0
+    ? Math.round(
+        todayCompletedForCounter.reduce((total, t) => {
+          const handleTime = differenceInMinutes(new Date(t.completed_at!), new Date(t.called_at!));
+          return total + handleTime;
+        }, 0) / todayCompletedForCounter.length
+      )
+    : 0;
+
+  // Update served count to show actual completed tokens for this counter today
+  const actualServedCount = todayCompletedForCounter.length;
 
   if (officesLoading || userLoading) {
     return <QueueLayout title="Staff Dashboard"><LoadingState /></QueueLayout>;
@@ -307,7 +325,7 @@ const StaffDashboard = () => {
                 </div>
                 <span className="text-xs font-semibold text-green-600 bg-green-100 dark:bg-green-900/50 px-2 py-1 rounded-full">Session</span>
               </div>
-              <p className="text-4xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent mb-1">{servedCount}</p>
+              <p className="text-4xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent mb-1">{actualServedCount}</p>
               <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Tokens Served</p>
             </CardContent>
           </Card>

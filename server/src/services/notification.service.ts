@@ -1,21 +1,32 @@
 import nodemailer from 'nodemailer';
-import { createClient } from '@supabase/supabase-js';
 import twilio from 'twilio';
+import { supabaseAdmin } from '../config/supabase';
 
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// Use the shared supabase client
+const supabase = supabaseAdmin;
 
 // Email transporter configuration
+const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
+const smtpPort = parseInt(process.env.SMTP_PORT || '587');
+const smtpSecure = (process.env.SMTP_SECURE || '').toLowerCase() === 'true' || smtpPort === 465;
+
 const emailTransporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: false,
+  host: smtpHost,
+  port: smtpPort,
+  secure: smtpSecure,
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASSWORD,
   },
+});
+
+// Verify SMTP configuration on startup for clearer diagnostics
+emailTransporter.verify((err: Error | null) => {
+  if (err) {
+    console.error('✗ SMTP verify failed:', err.message);
+  } else {
+    console.log(`✓ SMTP connected (${smtpHost}:${smtpPort}, secure=${smtpSecure})`);
+  }
 });
 
 // SMS configuration (Twilio)
@@ -180,7 +191,7 @@ class NotificationService {
       }
 
       const mailOptions = {
-        from: `"QueueFlow" <${process.env.SMTP_USER}>`,
+        from: `${process.env.SMTP_FROM_NAME || 'QueueFlow'} <${process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER}>`,
         to: notification.recipient_email,
         subject: notification.subject,
         text: notification.message,
@@ -474,6 +485,7 @@ class NotificationService {
 }
 
 export const notificationService = new NotificationService();
+export { emailTransporter }; // Export for direct use in other routes
 
 console.log('✓ Notification service initialized');
 console.log('✓ Email notifications enabled');

@@ -46,13 +46,24 @@ export class QueueEngine {
       .eq('id', serviceId)
       .single();
 
-    const { count } = await supabaseAdmin
+    // Get the highest token number for this service (not just today's)
+    const { data: latestToken } = await supabaseAdmin
       .from('tokens')
-      .select('*', { count: 'exact', head: true })
+      .select('token_label')
       .eq('service_id', serviceId)
-      .gte('created_at', new Date().setHours(0, 0, 0, 0));
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
 
-    const sequence = (count || 0) + 1;
+    let sequence = 1;
+    if (latestToken?.token_label) {
+      // Extract number from token_label (e.g., "DRI-0001" -> 1)
+      const match = latestToken.token_label.match(/(\d+)$/);
+      if (match) {
+        sequence = parseInt(match[1], 10) + 1;
+      }
+    }
+
     const serviceCode = service?.name.substring(0, 3).toUpperCase() || 'SRV';
     
     return `${serviceCode}-${String(sequence).padStart(4, '0')}`;
@@ -89,17 +100,44 @@ export class QueueEngine {
    */
   async createToken(request: CreateTokenRequest): Promise<Token> {
     try {
-      // Verify service exists and is active
+      console.log('📝 Creating token with request:', {
+        userId: request.userId,
+        serviceId: request.serviceId,
+        priority: request.priority
+      });
+
+      // Check if user already has an active token for this service
+      const { data: existingActiveToken } = await supabaseAdmin
+        .from('tokens')
+        .select('*')
+        .eq('citizen_id', request.userId)
+        .eq('service_id', request.serviceId)
+        .in('status', ['waiting', 'called', 'serving'])
+        .single();
+
+      if (existingActiveToken) {
+        console.log('⚠️ User already has active token:', existingActiveToken.token_label);
+        throw new Error(`You already have an active token (${existingActiveToken.token_label}) for this service. Please wait for your turn or complete your current token.`);
+      }
+
+      // Verify service exists
       const { data: service, error: serviceError } = await supabaseAdmin
         .from('services')
         .select('*')
         .eq('id', request.serviceId)
-        .eq('is_active', true)
         .single();
 
-      if (serviceError || !service) {
-        throw new Error('Service not found or inactive');
+      if (serviceError) {
+        console.error('❌ Service query error:', serviceError);
+        throw new Error(`Service lookup failed: ${serviceError.message}`);
       }
+
+      if (!service) {
+        console.error('❌ Service not found for ID:', request.serviceId);
+        throw new Error('Service not found');
+      }
+
+      console.log('✅ Service found:', service.name);
 
       // Get existing waiting tokens for this service
       const { data: existingTokens } = await supabaseAdmin
@@ -126,25 +164,44 @@ export class QueueEngine {
       }
 
       // Insert token
+      const tokenData = {
+        id: uuidv4(),
+        token_label: tokenLabel,
+        citizen_id: request.userId,
+        citizen_name: request.userInfo?.name || 'Anonymous',
+        citizen_phone: request.userInfo?.phone || null,
+        service_id: request.serviceId,
+        status: TokenStatus.WAITING,
+        priority: request.priority || Priority.NORMAL,
+        position_in_queue: queuePosition,
+        joined_at: createdAt.toISOString()
+      };
+
+      console.log('📤 Inserting token:', tokenData);
+
       const { data: token, error: tokenError } = await supabaseAdmin
         .from('tokens')
-        .insert({
-          id: uuidv4(),
-          token_label: tokenLabel,
-          user_id: request.userId,
-          service_id: request.serviceId,
-          status: TokenStatus.WAITING,
-          priority: request.priority || Priority.NORMAL,
-          queue_position: queuePosition,
-          estimated_wait_time: estimatedWaitTime,
-          created_at: createdAt.toISOString()
-        })
+        .insert(tokenData)
         .select()
         .single();
 
-      if (tokenError || !token) {
-        throw new Error('Failed to create token');
+      if (tokenError) {
+        console.error('❌ Token insert error:', tokenError);
+        throw new Error(`Failed to create token: ${tokenError.message}`);
       }
+
+      if (!token) {
+        console.error('❌ No token returned after insert');
+        throw new Error('Failed to create token: No data returned');
+      }
+
+      console.log('✅ Token created successfully:', token.id);
+
+      // Calculate and add estimated wait time to response (don't store in DB to avoid schema issues)
+      const avgServiceTime = service.average_service_time || 10; // Default to 10 minutes if not set
+      const waitTime = avgServiceTime * queuePosition;
+      token.estimated_wait_time = waitTime;
+      console.log(`📊 Estimated wait time calculated: ${waitTime} minutes (${avgServiceTime} min/token × ${queuePosition} position)`);
 
       // Log event
       await this.logQueueEvent({
@@ -160,6 +217,27 @@ export class QueueEngine {
       // Notify via Socket.IO
       notifyQueueUpdate(request.serviceId);
       notifyTokenUpdate(token.id, token);
+
+      // Send token creation notification
+      try {
+        const { data: user } = await supabaseAdmin
+          .from('users')
+          .select('id')
+          .eq('id', request.userId)
+          .single();
+
+        if (user) {
+          await notificationService.notifyTokenCreated(user.id, token.id, {
+            tokenLabel: token.token_label,
+            position: queuePosition,
+            estimatedWait: waitTime,
+            serviceName: service.name,
+            officeName: 'Main Municipal Office'
+          });
+        }
+      } catch (notifError) {
+        console.error('Failed to send token creation notification:', notifError);
+      }
 
       return token;
     } catch (error) {

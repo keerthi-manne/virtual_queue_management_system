@@ -51,6 +51,20 @@ ML_SERVICE_URL=http://localhost:8000
 
 # CORS
 CLIENT_URL=http://localhost:5173
+
+# Email & SMS (Notifications)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_USER=your_gmail@gmail.com
+SMTP_PASSWORD=your_app_password
+SMTP_FROM_NAME=QueueFlow Notifications
+SMTP_FROM_EMAIL=your_gmail@gmail.com
+
+TWILIO_ACCOUNT_SID=your_twilio_sid
+TWILIO_AUTH_TOKEN=your_twilio_token
+TWILIO_PHONE_NUMBER=+1234567890
+TWILIO_WHATSAPP_NUMBER=+14155238886  # Twilio sandbox number
 ```
 
 ## 📡 API Structure

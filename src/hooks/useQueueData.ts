@@ -38,18 +38,17 @@ export function useServices(officeId?: string) {
   const [error, setError] = useState<string | null>(null);
 
   const fetchServices = useCallback(async () => {
-    if (!officeId) {
-      setServices([]);
-      setLoading(false);
-      return;
-    }
-    
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('services')
         .select('*')
-        .eq('office_id', officeId)
         .order('name');
+      
+      if (officeId) {
+        query = query.eq('office_id', officeId);
+      }
+      
+      const { data, error } = await query;
       
       if (error) throw error;
       setServices(data || []);

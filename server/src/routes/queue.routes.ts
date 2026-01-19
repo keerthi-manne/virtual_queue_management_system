@@ -18,8 +18,93 @@ router.post('/join', async (req: Request, res: Response) => {
   try {
     const { userId, serviceId, priority, userInfo } = req.body;
 
+    console.log('📥 Join queue request:', { userId, serviceId, priority, userInfo });
+
     if (!userId || !serviceId) {
+      console.error('❌ Missing required fields');
       return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Check if priority claim requires document verification
+    if (priority && priority !== Priority.NORMAL) {
+      // Check if user has approved claim for this priority type
+      const { data: approvedClaim } = await supabaseAdmin
+        .from('priority_claims')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('claim_type', priority.toUpperCase())
+        .eq('status', 'APPROVED')
+        .order('approved_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      // Also check if claim was rejected
+      const { data: rejectedClaim } = await supabaseAdmin
+        .from('priority_claims')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('claim_type', priority.toUpperCase())
+        .eq('status', 'REJECTED')
+        .order('rejected_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!approvedClaim) {
+        if (rejectedClaim) {
+          // Claim was rejected - check if token was already generated during rejection
+          const { data: existingToken } = await supabaseAdmin
+            .from('tokens')
+            .select('*')
+            .eq('user_id', userId)
+            .in('status', ['WAITING', 'CALLED'])
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (existingToken) {
+            // Token already exists from rejection email
+            console.log(`ℹ️ User already has token ${existingToken.token_label || existingToken.token_number} from rejection`);
+            
+            // Map token_label to token_number for frontend compatibility
+            const responseToken = {
+              ...existingToken,
+              token_number: existingToken.token_number || existingToken.token_label
+            };
+            
+            return res.status(403).json({
+              error: 'Priority claim rejected - Token already generated',
+              hasExistingToken: true,
+              token: responseToken,
+              message: `Your ${priority} priority claim was rejected. A normal priority token (${responseToken.token_number}) was already sent to your email/SMS. Please check your messages.`
+            });
+          }
+
+          // No existing token - allow joining as NORMAL (rejection happened but token wasn't created)
+          if (priority !== 'NORMAL') {
+            console.log(`⚠️ Claim rejected but no token exists. Suggesting NORMAL priority.`);
+            return res.status(403).json({
+              error: 'Priority claim rejected',
+              requiresNormalPriority: true,
+              rejectionReason: rejectedClaim.admin_notes,
+              message: `Your ${priority} priority claim was rejected. Reason: ${rejectedClaim.admin_notes || 'See admin notes'}. You can join the queue with normal priority.`
+            });
+          }
+          // If they're trying NORMAL after rejection, allow it through
+          console.log(`✅ Allowing NORMAL priority join after rejected claim`);
+        }
+        
+        // No approved claim found - require document upload
+        if (priority !== 'NORMAL') {
+          return res.status(403).json({
+            error: 'Document verification required',
+            requiresDocumentUpload: true,
+            claimType: priority.toUpperCase(),
+            message: `Please upload your ${priority === 'SENIOR' ? 'Aadhaar card' : priority === 'DISABLED' ? 'disability certificate' : 'emergency document'} for verification before claiming this priority.`
+          });
+        }
+      }
+
+      console.log(`✅ Approved ${priority} claim found for user ${userId}`);
     }
 
     const token = await queueEngine.createToken({
@@ -29,12 +114,19 @@ router.post('/join', async (req: Request, res: Response) => {
       userInfo
     });
 
+    // Map token_label to token_number for frontend compatibility
+    const responseToken = {
+      ...token,
+      token_number: token.token_label
+    };
+
     res.status(201).json({
       success: true,
-      token,
+      token: responseToken,
       message: 'Token created successfully'
     });
   } catch (error: any) {
+    console.error('❌ Error in /queue/join:', error.message);
     res.status(500).json({ error: error.message });
   }
 });

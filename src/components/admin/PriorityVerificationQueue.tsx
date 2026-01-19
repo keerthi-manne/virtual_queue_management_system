@@ -86,7 +86,7 @@ export default function PriorityVerificationQueue() {
               name
             )
           ),
-          users (
+          users!citizen_id (
             name,
             phone,
             email

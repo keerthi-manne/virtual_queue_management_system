@@ -22,6 +22,7 @@ import EmptyState from '@/components/queue/EmptyState';
 import PriorityBadge from '@/components/queue/PriorityBadge';
 import StatusBadge from '@/components/queue/StatusBadge';
 import DocumentUpload from '@/components/queue/DocumentUpload';
+import PriorityDocumentUpload from '@/components/queue/PriorityDocumentUpload';
 import { Textarea } from '@/components/ui/textarea';
 import { 
   Ticket, User, Phone, Building, FileText, AlertTriangle, 
@@ -60,6 +61,9 @@ const CitizenDashboard = () => {
     disability?: string;
     medical?: string;
   }>({});
+  const [showDocumentUpload, setShowDocumentUpload] = useState(false);
+  const [pendingClaimType, setPendingClaimType] = useState<'SENIOR' | 'DISABLED' | 'EMERGENCY' | null>(null);
+  const [pendingServiceId, setPendingServiceId] = useState<string | null>(null);
 
   const { offices, loading: officesLoading } = useOffices();
   const { services, loading: servicesLoading } = useServices(selectedOffice);
@@ -155,28 +159,101 @@ const CitizenDashboard = () => {
     setIsSubmitting(true);
 
     try {
-      const estimatedWait = await calculateEstimatedWait(data.service_id);
       const tokenLabel = generateTokenLabel();
       const priority = calculatePriority(data);
 
-      // Create token first
-      const { data: newToken, error: tokenError } = await supabase
-        .from('tokens')
-        .insert({
-          token_label: tokenLabel,
-          service_id: data.service_id,
-          citizen_id: userRecord?.id,
-          citizen_name: data.citizen_name,
-          citizen_phone: data.citizen_phone || null,
+      // Use backend API to create token (handles all column name and position calculation)
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      const response = await fetch(`${apiUrl}/queue/join`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: userRecord?.id,
+          serviceId: data.service_id,
           priority: priority,
-          status: 'waiting',
-          joined_at: new Date().toISOString(),
-          estimated_wait_minutes: estimatedWait,
-        })
-        .select()
-        .single();
+          userInfo: {
+            name: data.citizen_name,
+            phone: data.citizen_phone || null,
+            token_label: tokenLabel,
+          },
+        }),
+      });
 
-      if (tokenError) throw tokenError;
+      if (!response.ok) {
+        const errorData = await response.json();
+        
+        // Handle rejected claim - token already generated during rejection
+        if (errorData.hasExistingToken) {
+          setCreatedTokenId(errorData.token.id);
+          toast({
+            title: "⚠️ Priority Claim Rejected",
+            description: errorData.message,
+            variant: "default",
+          });
+          setIsSubmitting(false);
+          return;
+        }
+        
+        // Handle rejected claim - allow joining as NORMAL
+        if (errorData.requiresNormalPriority) {
+          toast({
+            title: "❌ Priority Claim Rejected",
+            description: errorData.message,
+            variant: "destructive",
+          });
+          
+          // Retry with NORMAL priority
+          const retryResponse = await fetch(`${apiUrl}/queue/join`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              userId: userRecord?.id,
+              serviceId: data.service_id,
+              priority: 'NORMAL',
+              userInfo: {
+                name: data.citizen_name,
+                phone: data.citizen_phone || null,
+                token_label: tokenLabel,
+              },
+            }),
+          });
+
+          const retryData = await retryResponse.json();
+          
+          if (retryResponse.ok && retryData.token) {
+            setCreatedTokenId(retryData.token.id);
+            toast({
+              title: "✅ Joined Queue (Normal Priority)",
+              description: `Your token number is ${retryData.token.token_number}`,
+            });
+            setIsSubmitting(false);
+            return;
+          }
+        }
+        
+        // Check if document upload is required
+        if (errorData.requiresDocumentUpload) {
+          setShowDocumentUpload(true);
+          setPendingClaimType(errorData.claimType);
+          setPendingServiceId(data.service_id); // Save the service they wanted
+          toast({
+            title: '📄 Document Required',
+            description: errorData.message,
+            variant: 'default'
+          });
+          setIsSubmitting(false);
+          return;
+        }
+        
+        throw new Error(errorData.message || 'Failed to join queue');
+      }
+
+      const result = await response.json();
+      const newToken = result.token;
 
       setCreatedTokenId(newToken.id);
 
@@ -264,7 +341,7 @@ const CitizenDashboard = () => {
         title: '✅ Successfully joined the queue!',
         description: (
           <div className="space-y-1">
-            <p className="text-lg font-bold">Your Token: {tokenLabel}</p>
+            <p className="text-lg font-bold">Your Token: {newToken.token_label}</p>
             <p className="text-sm">Please keep this token number safe!</p>
             {(data.is_emergency || data.is_disabled || data.is_senior) && (
               <p className="text-xs text-yellow-600">Your priority claim is being reviewed.</p>
@@ -670,6 +747,31 @@ const CitizenDashboard = () => {
                     </Button>
                   </form>
                 </Form>
+
+                {/* Show document upload when required */}
+                {showDocumentUpload && pendingClaimType && userRecord?.id && pendingServiceId && (
+                  <div className="mt-6">
+                    <PriorityDocumentUpload
+                      userId={userRecord.id}
+                      serviceId={pendingServiceId}
+                      claimType={pendingClaimType}
+                      onUploadComplete={() => {
+                        setShowDocumentUpload(false);
+                        setPendingClaimType(null);
+                        setPendingServiceId(null);
+                        toast({
+                          title: '✅ Document Uploaded',
+                          description: 'Your claim will be reviewed by admin. You can join queue after approval.'
+                        });
+                      }}
+                      onCancel={() => {
+                        setShowDocumentUpload(false);
+                        setPendingClaimType(null);
+                        setPendingServiceId(null);
+                      }}
+                    />
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -751,7 +853,7 @@ const CitizenDashboard = () => {
                               )}
                               <div className="flex items-center gap-2 text-sm">
                                 <Clock className="h-4 w-4 text-muted-foreground" />
-                                <span>Est. wait: {token.estimated_wait_minutes || '--'} min</span>
+                                <span>Est. wait: {token.estimated_wait_time || (position ? position * 10 : '--')} min</span>
                               </div>
                               {aiEstimate && (
                                 <div className="flex items-center gap-2 text-sm text-primary">

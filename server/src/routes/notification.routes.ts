@@ -217,47 +217,104 @@ async function sendNotifications(
 }
 
 /**
- * Helper: Send Email (Mock - Replace with real email service)
+ * Helper: Send Email (Using nodemailer)
  */
 async function sendEmail(to: string, subject: string, body: string): Promise<{ success: boolean; error?: string }> {
   try {
-    // TODO: Integrate with actual email service (SendGrid, AWS SES, etc.)
-    console.log(`📧 EMAIL to ${to}: ${subject}`);
-    console.log(body);
+    const nodemailer = require('nodemailer');
     
-    // Mock success for now
+    const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
+    const smtpPort = parseInt(process.env.SMTP_PORT || '587');
+    const smtpSecure = (process.env.SMTP_SECURE || '').toLowerCase() === 'true' || smtpPort === 465;
+    
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpSecure,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASSWORD,
+      },
+    });
+
+    await transporter.sendMail({
+      from: `${process.env.SMTP_FROM_NAME || 'QueueFlow'} <${process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER}>`,
+      to,
+      subject,
+      text: body,
+      html: body.replace(/\n/g, '<br>')
+    });
+    
+    console.log(`📧 EMAIL sent to ${to}: ${subject}`);
     return { success: true };
   } catch (error: any) {
+    console.error(`❌ EMAIL failed to ${to}:`, error.message);
     return { success: false, error: error.message };
   }
 }
 
 /**
- * Helper: Send SMS (Mock - Replace with real SMS service)
+ * Helper: Send SMS (Using Twilio)
  */
 async function sendSMS(to: string, message: string): Promise<{ success: boolean; error?: string }> {
   try {
-    // TODO: Integrate with actual SMS service (Twilio, AWS SNS, etc.)
-    console.log(`📱 SMS to ${to}: ${message}`);
+    if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
+      console.log('⚠️ Twilio not configured, skipping SMS');
+      return { success: false, error: 'Twilio not configured' };
+    }
+
+    const twilio = require('twilio');
+    const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
     
-    // Mock success for now
+    // Format phone number to E.164
+    let phoneNumber = to.replace(/\s+/g, '');
+    if (!phoneNumber.startsWith('+')) {
+      phoneNumber = '+91' + phoneNumber;
+    }
+
+    const result = await client.messages.create({
+      body: message,
+      from: process.env.TWILIO_PHONE_NUMBER,
+      to: phoneNumber,
+    });
+    
+    console.log(`📱 SMS sent to ${phoneNumber}: ${result.sid}`);
     return { success: true };
   } catch (error: any) {
+    console.error(`❌ SMS failed to ${to}:`, error.message);
     return { success: false, error: error.message };
   }
 }
 
 /**
- * Helper: Send WhatsApp (Mock - Replace with real WhatsApp service)
+ * Helper: Send WhatsApp (Using Twilio WhatsApp)
  */
 async function sendWhatsApp(to: string, message: string): Promise<{ success: boolean; error?: string }> {
   try {
-    // TODO: Integrate with actual WhatsApp Business API
-    console.log(`💬 WhatsApp to ${to}: ${message}`);
+    if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_WHATSAPP_NUMBER) {
+      console.log('⚠️ Twilio WhatsApp not configured, skipping');
+      return { success: false, error: 'Twilio WhatsApp not configured' };
+    }
+
+    const twilio = require('twilio');
+    const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
     
-    // Mock success for now
+    // Format phone number
+    let phoneNumber = to.replace(/\s+/g, '');
+    if (!phoneNumber.startsWith('+')) {
+      phoneNumber = '+91' + phoneNumber;
+    }
+
+    const result = await client.messages.create({
+      body: message,
+      from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
+      to: `whatsapp:${phoneNumber}`,
+    });
+    
+    console.log(`💬 WhatsApp sent to ${phoneNumber}: ${result.sid}`);
     return { success: true };
   } catch (error: any) {
+    console.error(`❌ WhatsApp failed to ${to}:`, error.message);
     return { success: false, error: error.message };
   }
 }
