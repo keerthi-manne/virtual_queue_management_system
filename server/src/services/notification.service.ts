@@ -82,6 +82,22 @@ class NotificationService {
         return;
       }
 
+      // Check for existing pending notification to avoid duplicates
+      const { data: existing } = await supabase
+        .from('notification_queue')
+        .select('id')
+        .eq('user_id', data.userId)
+        .eq('token_id', data.tokenId)
+        .eq('type', data.type)
+        .eq('template', data.template)
+        .eq('status', 'PENDING')
+        .maybeSingle();
+
+      if (existing) {
+        console.log(`Skipping duplicate ${data.type} notification for user ${data.userId}`);
+        return;
+      }
+
       // Insert into notification queue
       const { error: queueError } = await supabase
         .from('notification_queue')

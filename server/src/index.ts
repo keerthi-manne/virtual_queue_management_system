@@ -17,14 +17,21 @@ import staffRequestsRoutes from './routes/staff-requests.routes';
 import rescheduleRoutes from './routes/reschedule.routes';
 import emailTestRoutes from './routes/email-test.routes';
 import claimRoutes from './routes/claim.routes';
+import servicesRoutes from './routes/services.routes';
 
 const app: Express = express();
 const httpServer = createServer(app);
 
+// Configure CORS origins
+const allowedOrigins = ['http://localhost:5173', 'http://localhost:8080'];
+if (process.env.CLIENT_URL) {
+  allowedOrigins.push(process.env.CLIENT_URL);
+}
+
 // Initialize Socket.IO
 const io = new SocketIOServer(httpServer, {
   cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    origin: allowedOrigins,
     methods: ['GET', 'POST'],
     credentials: true
   }
@@ -32,7 +39,7 @@ const io = new SocketIOServer(httpServer, {
 
 // Middleware
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: allowedOrigins,
   credentials: true
 }));
 app.use(express.json());
@@ -53,6 +60,7 @@ app.use('/api/staff-requests', staffRequestsRoutes);
 app.use('/api/reschedule', rescheduleRoutes);
 app.use('/api/email-test', emailTestRoutes);
 app.use('/api/claim', claimRoutes);
+app.use('/api/services', servicesRoutes);
 
 // Initialize Socket.IO service
 initSocketService(io);

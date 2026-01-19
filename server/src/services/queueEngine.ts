@@ -159,8 +159,8 @@ export class QueueEngine {
       try {
         estimatedWaitTime = await predictWaitTime(request.serviceId, queuePosition);
       } catch (error) {
-        // Fallback: simple calculation based on average service time
-        estimatedWaitTime = service.average_service_time * queuePosition;
+        // Fallback: simple calculation based on service handle time
+        estimatedWaitTime = (service.average_service_time || service.base_handle_time || 10) * queuePosition;
       }
 
       // Insert token
@@ -174,6 +174,7 @@ export class QueueEngine {
         status: TokenStatus.WAITING,
         priority: request.priority || Priority.NORMAL,
         position_in_queue: queuePosition,
+        estimated_wait_minutes: Math.round(estimatedWaitTime),
         joined_at: createdAt.toISOString()
       };
 
@@ -197,8 +198,8 @@ export class QueueEngine {
 
       console.log('✅ Token created successfully:', token.id);
 
-      // Calculate and add estimated wait time to response (don't store in DB to avoid schema issues)
-      const avgServiceTime = service.average_service_time || 10; // Default to 10 minutes if not set
+      // Calculate and add estimated wait time to response
+      const avgServiceTime = service.average_service_time || service.base_handle_time || 10;
       const waitTime = avgServiceTime * queuePosition;
       token.estimated_wait_time = waitTime;
       console.log(`📊 Estimated wait time calculated: ${waitTime} minutes (${avgServiceTime} min/token × ${queuePosition} position)`);

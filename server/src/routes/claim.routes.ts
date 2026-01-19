@@ -441,14 +441,16 @@ router.post('/approve', async (req: Request, res: Response) => {
       .eq('id', targetServiceId)
       .single();
 
-    // Get current queue position
+    // Get current queue position (only count waiting tokens)
     const { count: queueLength } = await supabaseAdmin
       .from('tokens')
       .select('*', { count: 'exact', head: true })
       .eq('service_id', targetServiceId)
-      .eq('status', 'WAITING');
+      .eq('status', 'waiting');
 
-    const estimatedWaitTime = Math.round((queueLength || 0) * (service?.base_handle_time || 15));
+    const queuePosition = (queueLength || 0) + 1;
+    const avgServiceTime = service?.average_service_time || service?.base_handle_time || 15;
+    const estimatedWaitTime = Math.round(queuePosition * avgServiceTime);
 
     // Generate token label
     const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -460,23 +462,23 @@ router.post('/approve', async (req: Request, res: Response) => {
     const { data: token, error: tokenError } = await supabaseAdmin
       .from('tokens')
       .insert({
-        user_id: claim.user_id,
-        service_id: targetServiceId,
-        priority: priority,
-        status: 'WAITING',
-        token_label: tokenLabel,
         citizen_id: claim.user_id,
         citizen_name: claim.user?.name || 'User',
         citizen_phone: claim.user?.phone || null,
+        service_id: targetServiceId,
+        priority: priority.toUpperCase(),
+        status: 'waiting',
+        token_label: tokenLabel,
+        position_in_queue: queuePosition,
+        estimated_wait_minutes: estimatedWaitTime,
         joined_at: new Date().toISOString()
       })
       .select()
       .single();
 
-    // Add estimated wait time and token_number to response
+    // Add estimated wait time to response
     if (token) {
       token.estimated_wait_time = estimatedWaitTime;
-      token.token_number = token.token_label;
     }
 
     if (tokenError || !token) {
@@ -602,9 +604,11 @@ router.post('/reject', async (req: Request, res: Response) => {
       .from('tokens')
       .select('*', { count: 'exact', head: true })
       .eq('service_id', claim.service_id)
-      .eq('status', 'WAITING');
+      .eq('status', 'waiting');
 
-    const estimatedWaitTime = Math.round((queueLength || 0) * (service?.base_handle_time || 15));
+    const queuePosition = (queueLength || 0) + 1;
+    const avgServiceTime = service?.average_service_time || service?.base_handle_time || 15;
+    const estimatedWaitTime = Math.round(queuePosition * avgServiceTime);
 
     // Generate token label
     const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -616,23 +620,23 @@ router.post('/reject', async (req: Request, res: Response) => {
     const { data: token, error: tokenError } = await supabaseAdmin
       .from('tokens')
       .insert({
-        user_id: claim.user_id,
-        service_id: claim.service_id,
-        priority: 'NORMAL',
-        status: 'WAITING',
-        token_label: tokenLabel,
         citizen_id: claim.user_id,
         citizen_name: claim.user?.name || 'User',
         citizen_phone: claim.user?.phone || null,
+        service_id: claim.service_id,
+        priority: 'NORMAL',
+        status: 'waiting',
+        token_label: tokenLabel,
+        position_in_queue: queuePosition,
+        estimated_wait_minutes: estimatedWaitTime,
         joined_at: new Date().toISOString()
       })
       .select()
       .single();
 
-    // Add estimated wait time and token_number to response
+    // Add estimated wait time to response
     if (token) {
       token.estimated_wait_time = estimatedWaitTime;
-      token.token_number = token.token_label;
     }
 
     if (tokenError || !token) {

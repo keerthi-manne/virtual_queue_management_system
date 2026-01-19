@@ -55,7 +55,7 @@ router.post('/join', async (req: Request, res: Response) => {
           const { data: existingToken } = await supabaseAdmin
             .from('tokens')
             .select('*')
-            .eq('user_id', userId)
+            .eq('citizen_id', userId)
             .in('status', ['WAITING', 'CALLED'])
             .order('created_at', { ascending: false })
             .limit(1)

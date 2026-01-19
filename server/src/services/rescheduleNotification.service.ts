@@ -34,6 +34,8 @@ interface Token {
   id: string;
   token_label: string;
   service_id: string;
+  position_in_queue?: number;
+  estimated_wait_minutes?: number;
   services?: {
     name: string;
   };
@@ -50,7 +52,7 @@ export async function sendRescheduleRequest(
 ): Promise<void> {
   try {
     const serviceName = token.services?.name || 'Service';
-    const frontendUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+    const frontendUrl = process.env.CLIENT_URL || 'http://localhost:8080';
     const rescheduleUrl = `${frontendUrl}/reschedule/${rescheduleRequestId}`;
     
     // Format expiry time
@@ -167,11 +169,13 @@ async function sendRescheduleEmail(
         <p><strong>Token Number:</strong> ${token.token_label}</p>
         <p><strong>Service:</strong> ${serviceName}</p>
         <p><strong>Status:</strong> No Show</p>
+        <p><strong>Original Position:</strong> ${token.position_in_queue || 'N/A'}</p>
+        <p><strong>Original Estimated Wait:</strong> ${token.estimated_wait_minutes ? `${token.estimated_wait_minutes} minutes` : 'N/A'}</p>
       </div>
 
       <div class="info">
         <strong>⚠️ Would you like to reschedule?</strong>
-        <p style="margin: 10px 0 0 0;">You can get a new token and rejoin the queue. This offer expires on <strong>${expiryTime}</strong></p>
+        <p style="margin: 10px 0 0 0;">You can get a new token and rejoin the queue at the current position. This offer expires on <strong>${expiryTime}</strong></p>
       </div>
 
       <div style="text-align: center; margin: 30px 0;">
@@ -325,7 +329,9 @@ async function sendConfirmationEmail(
       <div class="token-box">
         <p style="margin: 0; color: #666;">Your New Token Number</p>
         <div class="token-number">${newToken.token_label}</div>
-        <p style="margin: 0; color: #666;">Service: <strong>${serviceName}</strong></p>
+        <p style="margin: 10px 0 5px 0; color: #666;">Service: <strong>${serviceName}</strong></p>
+        ${newToken.position_in_queue ? `<p style="margin: 5px 0; color: #666;">Position in Queue: <strong>${newToken.position_in_queue}</strong></p>` : ''}
+        ${newToken.estimated_wait_minutes ? `<p style="margin: 5px 0; color: #666;">Estimated Wait Time: <strong>${newToken.estimated_wait_minutes} minutes</strong></p>` : ''}
       </div>
 
       <p>You've been added back to the queue. Please arrive at the facility and wait for your token to be called.</p>
