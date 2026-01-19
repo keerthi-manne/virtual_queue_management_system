@@ -21,6 +21,7 @@ const StaffDashboard = lazy(() => import("./pages/staff/StaffDashboard"));
 // Admin Pages
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
 const AIInsights = lazy(() => import("./pages/admin/AIInsights"));
+const DemandAnalysisPage = lazy(() => import("./pages/admin/DemandAnalysisPage"));
 
 // Public Pages
 const CheckStatus = lazy(() => import("./pages/CheckStatus"));
@@ -99,6 +100,14 @@ const App = () => (
                   element={
                     <ProtectedRoute requiredRole="ADMIN">
                       <AIInsights />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/admin/demand-analysis" 
+                  element={
+                    <ProtectedRoute requiredRole="ADMIN">
+                      <DemandAnalysisPage />
                     </ProtectedRoute>
                   } 
                 />

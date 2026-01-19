@@ -33,6 +33,7 @@ const StaffDashboard = () => {
   const { counters } = useCounters(selectedOffice);
   const { tokens: waitingTokens, loading: tokensLoading, refetch } = useTokens(selectedService, 'waiting');
   const { tokens: calledTokens, refetch: refetchCalled } = useTokens(selectedService, 'called');
+  const { tokens: servingTokens, refetch: refetchServing } = useTokens(selectedService, 'serving');
   const { tokens: completedTokens } = useTokens(selectedService, 'completed');
 
   // Filter counters by selected service
@@ -40,8 +41,8 @@ const StaffDashboard = () => {
     ? counters.filter(c => c.service_id === selectedService)
     : counters;
 
-  // Filter called tokens for this counter
-  const myCalledTokens = calledTokens.filter(t => t.counter_id === selectedCounter);
+  // Combine called and serving tokens for this counter
+  const myCalledTokens = [...calledTokens, ...servingTokens].filter(t => t.counter_id === selectedCounter);
   
   const sortedTokens = sortTokensByPriority(waitingTokens);
 
@@ -106,27 +107,63 @@ const StaffDashboard = () => {
   };
 
   const handleComplete = async (token: Token) => {
+    // Calculate actual service time if service_started_at exists
+    let actualServiceTime = 0;
+    if (token.service_started_at) {
+      actualServiceTime = differenceInMinutes(new Date(), new Date(token.service_started_at));
+    }
+
     const { error } = await supabase
       .from('tokens')
       .update({ 
         status: 'completed', 
-        completed_at: new Date().toISOString() 
+        completed_at: new Date().toISOString(),
+        actual_service_time: actualServiceTime || null
       })
       .eq('id', token.id);
 
     if (error) {
       toast({ title: 'Error', description: 'Failed to complete token', variant: 'destructive' });
     } else {
-      // Calculate handle time
+      // Calculate handle time for display
       if (token.called_at) {
         const handleTime = differenceInMinutes(new Date(), new Date(token.called_at));
         setTotalHandleTime(prev => prev + handleTime);
       }
       setServedCount(prev => prev + 1);
       
-      toast({ title: 'Completed', description: `Token ${token.token_label} marked as completed` });
+      const timeMsg = actualServiceTime > 0 
+        ? `Service time: ${actualServiceTime} min` 
+        : '';
+      
+      toast({ 
+        title: 'Completed', 
+        description: `Token ${token.token_label} marked as completed. ${timeMsg}` 
+      });
       refetch();
       refetchCalled();
+      refetchServing();
+    }
+  };
+
+  const handleServiceStarted = async (token: Token) => {
+    const { error } = await supabase
+      .from('tokens')
+      .update({ 
+        service_started_at: new Date().toISOString(),
+        status: 'serving'
+      })
+      .eq('id', token.id);
+
+    if (error) {
+      toast({ title: 'Error', description: 'Failed to start service', variant: 'destructive' });
+    } else {
+      toast({ 
+        title: 'Service Started', 
+        description: `Started serving token ${token.token_label}` 
+      });
+      refetchCalled();
+      refetchServing();
     }
   };
 
@@ -167,6 +204,7 @@ const StaffDashboard = () => {
 
       refetch();
       refetchCalled();
+      refetchServing();
     } catch (error: any) {
       console.error('Error marking no-show:', error);
       toast({ 
@@ -313,7 +351,9 @@ const StaffDashboard = () => {
                 </div>
                 <span className="text-xs font-semibold text-amber-600 bg-amber-100 dark:bg-amber-900/50 px-2 py-1 rounded-full">Avg</span>
               </div>
-              <p className="text-4xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent mb-1">{avgHandleTime || '--'} <span className="text-2xl">min</span></p>
+              <p className="text-4xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent mb-1">
+                {avgHandleTime > 0 ? avgHandleTime : '--'} {avgHandleTime > 0 && <span className="text-2xl">min</span>}
+              </p>
               <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Handle Time</p>
             </CardContent>
           </Card>
@@ -359,14 +399,32 @@ const StaffDashboard = () => {
                       <PriorityBadge priority={token.priority} />
                     </div>
                     <div className="flex gap-2">
-                      <Button 
-                        size="sm" 
-                        variant="destructive" 
-                        onClick={() => handleNoShow(token)}
-                        className="bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700"
-                      >
-                        <XCircle className="h-4 w-4 mr-1" /> No Show
-                      </Button>
+                      {!token.service_started_at && (
+                        <>
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => handleServiceStarted(token)}
+                            className="border-blue-600 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950"
+                          >
+                            <Clock className="h-4 w-4 mr-1" /> Start Service
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="destructive" 
+                            onClick={() => handleNoShow(token)}
+                            className="bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700"
+                          >
+                            <XCircle className="h-4 w-4 mr-1" /> No Show
+                          </Button>
+                        </>
+                      )}
+                      {token.service_started_at && (
+                        <div className="flex items-center gap-2 text-sm text-blue-600 font-medium">
+                          <Clock className="h-4 w-4" />
+                          Serving for {differenceInMinutes(new Date(), new Date(token.service_started_at))} min
+                        </div>
+                      )}
                       <Button 
                         size="sm" 
                         onClick={() => handleComplete(token)}

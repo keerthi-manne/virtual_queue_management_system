@@ -170,6 +170,15 @@ const AdminDashboard = () => {
             AI Insights
             <Sparkles className="h-3 w-3 ml-2 animate-pulse" />
           </Button>
+          <Button 
+            variant="default" 
+            size="sm" 
+            onClick={() => navigate('/admin/demand-analysis')}
+            className="bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700 shadow-lg hover:shadow-xl transition-all duration-300"
+          >
+            <BarChart3 className="h-4 w-4 mr-2" />
+            Demand Forecast
+          </Button>
           <Button variant="outline" size="sm" onClick={handleSignOut}>
             <LogOut className="h-4 w-4 mr-2" /> Sign Out
           </Button>
