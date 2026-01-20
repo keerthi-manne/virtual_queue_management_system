@@ -18,6 +18,7 @@ import rescheduleRoutes from './routes/reschedule.routes';
 import emailTestRoutes from './routes/email-test.routes';
 import claimRoutes from './routes/claim.routes';
 import servicesRoutes from './routes/services.routes';
+import smsRoutes from './routes/sms';
 
 const app: Express = express();
 const httpServer = createServer(app);
@@ -61,6 +62,7 @@ app.use('/api/reschedule', rescheduleRoutes);
 app.use('/api/email-test', emailTestRoutes);
 app.use('/api/claim', claimRoutes);
 app.use('/api/services', servicesRoutes);
+app.use('/api/sms', smsRoutes);
 
 // Initialize Socket.IO service
 initSocketService(io);
