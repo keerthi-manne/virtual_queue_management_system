@@ -36,16 +36,16 @@ const QueueHeader = () => {
   const navItems = getNavItems();
 
   return (
-    <header className="bg-background border-b border-border sticky top-0 z-50">
+    <header className="bg-white/80 dark:bg-slate-950/80 backdrop-blur-lg border-b-2 border-slate-200 dark:border-slate-800 sticky top-0 z-50 shadow-sm">
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <div className="flex-shrink-0">
-            <Link to="/" className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-primary rounded-md flex items-center justify-center">
-                <Users className="h-5 w-5 text-primary-foreground" />
+            <Link to="/" className="flex items-center gap-3 group">
+              <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                <Users className="h-6 w-6 text-white" />
               </div>
-              <span className="text-xl font-semibold text-foreground">QueueFlow</span>
+              <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">QueueFlow</span>
             </Link>
           </div>
 

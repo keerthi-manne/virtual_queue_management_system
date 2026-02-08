@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
@@ -21,6 +21,9 @@ import LoadingState from '@/components/queue/LoadingState';
 import EmptyState from '@/components/queue/EmptyState';
 import PriorityBadge from '@/components/queue/PriorityBadge';
 import StatusBadge from '@/components/queue/StatusBadge';
+import DocumentUpload from '@/components/queue/DocumentUpload';
+import PriorityDocumentUpload from '@/components/queue/PriorityDocumentUpload';
+import { Textarea } from '@/components/ui/textarea';
 import { 
   Ticket, User, Phone, Building, FileText, AlertTriangle, 
   Clock, Brain, Upload, Accessibility, UserCheck, Sparkles,
@@ -37,6 +40,9 @@ const formSchema = z.object({
   is_senior: z.boolean().default(false),
   is_disabled: z.boolean().default(false),
   is_emergency: z.boolean().default(false),
+  emergency_reason: z.string().optional(),
+  aadhaar_last_4: z.string().optional(),
+  date_of_birth: z.string().optional(),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -49,18 +55,60 @@ const CitizenDashboard = () => {
   const [selectedOffice, setSelectedOffice] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState('join');
+  const [createdTokenId, setCreatedTokenId] = useState<string | null>(null);
+  const [uploadedDocs, setUploadedDocs] = useState<{
+    aadhaar?: string;
+    disability?: string;
+    medical?: string;
+  }>({});
+  const [showDocumentUpload, setShowDocumentUpload] = useState(false);
+  const [pendingClaimType, setPendingClaimType] = useState<'SENIOR' | 'DISABLED' | 'EMERGENCY' | null>(null);
+  const [pendingServiceId, setPendingServiceId] = useState<string | null>(null);
 
   const { offices, loading: officesLoading } = useOffices();
   const { services, loading: servicesLoading } = useServices(selectedOffice);
   
-  // Fetch user's tokens
-  const { tokens: userTokens, loading: tokensLoading, refetch: refetchTokens } = useTokens();
-  const myTokens = userTokens.filter(t => t.citizen_id === userRecord?.id);
+  // Fetch ALL tokens (needed for position calculation)
+  const { tokens: allTokens, loading: allTokensLoading } = useTokens();
+  
+  // Fetch user's own tokens directly
+  const [myTokens, setMyTokens] = useState<any[]>([]);
+  const [tokensLoading, setTokensLoading] = useState(true);
+  
+  const refetchTokens = useCallback(async () => {
+    if (!userRecord?.id) return;
+    setTokensLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('tokens')
+        .select('*, counters(*)')
+        .eq('citizen_id', userRecord.id)
+        .order('joined_at', { ascending: false });
+      
+      if (error) {
+        console.error('Error fetching tokens:', error);
+        toast({ title: 'Error', description: 'Failed to load tokens', variant: 'destructive' });
+      } else {
+        setMyTokens(data || []);
+      }
+    } catch (err) {
+      console.error('Error:', err);
+    } finally {
+      setTokensLoading(false);
+    }
+  }, [userRecord?.id]);
+  
+  useEffect(() => {
+    refetchTokens();
+  }, [refetchTokens]);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       office_id: '',
+      emergency_reason: '',
+      aadhaar_last_4: '',
+      date_of_birth: '',
       service_id: '',
       citizen_name: '',
       citizen_phone: '',
@@ -79,10 +127,11 @@ const CitizenDashboard = () => {
   }, [userRecord, form]);
 
   const generateTokenLabel = () => {
-    const prefix = 'TKN';
-    const timestamp = Date.now().toString(36).toUpperCase();
-    const random = Math.random().toString(36).substring(2, 5).toUpperCase();
-    return `${prefix}-${timestamp}-${random}`;
+    // Generate token in format: A001, B042, etc.
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const prefix = letters[Math.floor(Math.random() * letters.length)];
+    const number = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    return `${prefix}${number}`;
   };
 
   const calculatePriority = (data: FormData): Priority => {
@@ -110,31 +159,196 @@ const CitizenDashboard = () => {
     setIsSubmitting(true);
 
     try {
-      const estimatedWait = await calculateEstimatedWait(data.service_id);
       const tokenLabel = generateTokenLabel();
       const priority = calculatePriority(data);
 
-      const { data: newToken, error } = await supabase
-        .from('tokens')
-        .insert({
-          token_label: tokenLabel,
-          service_id: data.service_id,
-          citizen_id: userRecord?.id,
-          citizen_name: data.citizen_name,
-          citizen_phone: data.citizen_phone || null,
+      // Use backend API to create token (handles all column name and position calculation)
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      const response = await fetch(`${apiUrl}/queue/join`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: userRecord?.id,
+          serviceId: data.service_id,
           priority: priority,
-          status: 'WAITING',
-          joined_at: new Date().toISOString(),
-          estimated_wait_minutes: estimatedWait,
-        })
-        .select()
-        .single();
+          userInfo: {
+            name: data.citizen_name,
+            phone: data.citizen_phone || null,
+            token_label: tokenLabel,
+          },
+        }),
+      });
 
-      if (error) throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        
+        // Handle rejected claim - token already generated during rejection
+        if (errorData.hasExistingToken) {
+          setCreatedTokenId(errorData.token.id);
+          toast({
+            title: "⚠️ Priority Claim Rejected",
+            description: errorData.message,
+            variant: "default",
+          });
+          setIsSubmitting(false);
+          return;
+        }
+        
+        // Handle rejected claim - allow joining as NORMAL
+        if (errorData.requiresNormalPriority) {
+          toast({
+            title: "❌ Priority Claim Rejected",
+            description: errorData.message,
+            variant: "destructive",
+          });
+          
+          // Retry with NORMAL priority
+          const retryResponse = await fetch(`${apiUrl}/queue/join`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              userId: userRecord?.id,
+              serviceId: data.service_id,
+              priority: 'NORMAL',
+              userInfo: {
+                name: data.citizen_name,
+                phone: data.citizen_phone || null,
+                token_label: tokenLabel,
+              },
+            }),
+          });
+
+          const retryData = await retryResponse.json();
+          
+          if (retryResponse.ok && retryData.token) {
+            setCreatedTokenId(retryData.token.id);
+            toast({
+              title: "✅ Joined Queue (Normal Priority)",
+              description: `Your token number is ${retryData.token.token_number}`,
+            });
+            setIsSubmitting(false);
+            return;
+          }
+        }
+        
+        // Check if document upload is required
+        if (errorData.requiresDocumentUpload) {
+          setShowDocumentUpload(true);
+          setPendingClaimType(errorData.claimType);
+          setPendingServiceId(data.service_id); // Save the service they wanted
+          toast({
+            title: '📄 Document Required',
+            description: errorData.message,
+            variant: 'default'
+          });
+          setIsSubmitting(false);
+          return;
+        }
+        
+        throw new Error(errorData.message || 'Failed to join queue');
+      }
+
+      const result = await response.json();
+      const newToken = result.token;
+
+      setCreatedTokenId(newToken.id);
+
+      // If emergency, call AI classification
+      if (data.is_emergency && data.emergency_reason) {
+        try {
+          const response = await fetch('http://localhost:8000/classify/emergency', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              reason: data.emergency_reason,
+              emergency_type: 'medical'
+            })
+          });
+
+          const aiResult = await response.json();
+
+          // Create verification request
+          await supabase
+            .from('priority_verification_requests')
+            .insert({
+              token_id: newToken.id,
+              user_id: userRecord?.id,
+              priority_type: 'EMERGENCY',
+              reason: data.emergency_reason,
+              ai_classification: aiResult.classification,
+              ai_confidence: aiResult.confidence,
+              ai_reasoning: aiResult.reasoning,
+              requires_admin_review: aiResult.requires_admin_review,
+              status: aiResult.auto_approved ? 'APPROVED' : 'PENDING'
+            });
+
+        } catch (aiError) {
+          console.error('AI classification failed:', aiError);
+        }
+      }
+
+      // If senior citizen, verify age
+      if (data.is_senior && data.aadhaar_last_4 && data.date_of_birth) {
+        try {
+          const response = await fetch('http://localhost:8000/verify/senior-citizen', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              aadhaar_last_4: data.aadhaar_last_4,
+              date_of_birth: data.date_of_birth,
+              claimed_age: 60
+            })
+          });
+
+          const verifyResult = await response.json();
+
+          await supabase
+            .from('priority_verification_requests')
+            .insert({
+              token_id: newToken.id,
+              user_id: userRecord?.id,
+              priority_type: 'SENIOR',
+              ai_classification: verifyResult.is_senior ? 'genuine' : 'false',
+              ai_confidence: verifyResult.confidence,
+              ai_reasoning: verifyResult.reasoning,
+              requires_admin_review: verifyResult.requires_document,
+              status: verifyResult.is_senior && !verifyResult.requires_document ? 'APPROVED' : 'PENDING'
+            });
+
+        } catch (verifyError) {
+          console.error('Age verification failed:', verifyError);
+        }
+      }
+
+      // If disabled, create verification request
+      if (data.is_disabled) {
+        await supabase
+          .from('priority_verification_requests')
+          .insert({
+            token_id: newToken.id,
+            user_id: userRecord?.id,
+            priority_type: 'DISABLED',
+            requires_admin_review: true,
+            status: 'PENDING'
+          });
+      }
 
       toast({
-        title: 'Successfully joined the queue!',
-        description: `Your token number is ${tokenLabel}`,
+        title: '✅ Successfully joined the queue!',
+        description: (
+          <div className="space-y-1">
+            <p className="text-lg font-bold">Your Token: {newToken.token_label}</p>
+            <p className="text-sm">Please keep this token number safe!</p>
+            {(data.is_emergency || data.is_disabled || data.is_senior) && (
+              <p className="text-xs text-yellow-600">Your priority claim is being reviewed.</p>
+            )}
+          </div>
+        ),
+        duration: 10000,
       });
 
       form.reset({
@@ -145,8 +359,13 @@ const CitizenDashboard = () => {
         is_senior: false,
         is_disabled: false,
         is_emergency: false,
+        emergency_reason: '',
+        aadhaar_last_4: '',
+        date_of_birth: '',
       });
       setSelectedOffice('');
+      setCreatedTokenId(null);
+      setUploadedDocs({});
       setActiveTab('status');
       refetchTokens();
     } catch (error) {
@@ -162,8 +381,12 @@ const CitizenDashboard = () => {
   };
 
   const handleSignOut = async () => {
-    await signOut();
-    navigate('/auth');
+    try {
+      await signOut();
+      navigate('/auth', { replace: true });
+    } catch (error) {
+      console.error('Sign out error:', error);
+    }
   };
 
   if (officesLoading || userLoading) {
@@ -179,34 +402,41 @@ const CitizenDashboard = () => {
       title="Citizen Dashboard" 
       subtitle={`Welcome, ${userRecord?.name || 'Citizen'}`}
     >
-      <div className="flex justify-end mb-4">
-        <Button variant="outline" size="sm" onClick={handleSignOut}>
+      <div className="flex justify-end mb-6">
+        <Button variant="outline" size="sm" onClick={handleSignOut} className="hover-lift">
           <LogOut className="h-4 w-4 mr-2" /> Sign Out
         </Button>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-2 max-w-md mx-auto">
-          <TabsTrigger value="join" className="flex items-center gap-2">
+        <TabsList className="grid w-full grid-cols-3 max-w-2xl mx-auto glass-card">
+          <TabsTrigger value="join" className="flex items-center gap-2 data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-600 data-[state=active]:to-indigo-600 data-[state=active]:text-white">
             <Ticket className="h-4 w-4" /> Join Queue
           </TabsTrigger>
-          <TabsTrigger value="status" className="flex items-center gap-2">
+          <TabsTrigger value="status" className="flex items-center gap-2 data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-600 data-[state=active]:to-pink-600 data-[state=active]:text-white">
             <Clock className="h-4 w-4" /> My Tokens
+          </TabsTrigger>
+          <TabsTrigger value="check" className="flex items-center gap-2 data-[state=active]:bg-gradient-to-r data-[state=active]:from-green-600 data-[state=active]:to-emerald-600 data-[state=active]:text-white">
+            <FileText className="h-4 w-4" /> Check Status
           </TabsTrigger>
         </TabsList>
 
         {/* Join Queue Tab */}
         <TabsContent value="join">
           <div className="max-w-2xl mx-auto">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Ticket className="h-5 w-5" />
-                  Get Your Queue Token
-                </CardTitle>
-                <CardDescription>
-                  Fill in the details below to join the queue. Your information has been prefilled from your profile.
-                </CardDescription>
+            <Card className="glass-card hover-lift animate-fade-in shadow-elegant-lg border-2 pattern-dots">
+              <CardHeader className="border-b pb-6">
+                <div className="flex items-center gap-4 mb-2">
+                  <div className="p-3 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl shadow-lg">
+                    <Ticket className="h-6 w-6 text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <CardTitle className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-1">Get Your Queue Token</CardTitle>
+                    <CardDescription className="text-sm">
+                      Fill in the details below to join the queue. Your information has been prefilled from your profile.
+                    </CardDescription>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
                 <Form {...form}>
@@ -338,7 +568,7 @@ const CitizenDashboard = () => {
                                 className="mt-1"
                               />
                             </FormControl>
-                            <div className="space-y-1">
+                            <div className="space-y-1 flex-1">
                               <FormLabel className="text-base font-medium cursor-pointer">
                                 <UserCheck className="h-4 w-4 inline mr-2" />
                                 Senior Citizen (Age 60+)
@@ -346,6 +576,59 @@ const CitizenDashboard = () => {
                               <FormDescription>
                                 Check if you are 60 years or older for priority service.
                               </FormDescription>
+                              
+                              {field.value && (
+                                <div className="mt-4 space-y-3 pt-3 border-t">
+                                  <FormField
+                                    control={form.control}
+                                    name="aadhaar_last_4"
+                                    render={({ field: aadhaarField }) => (
+                                      <FormItem>
+                                        <FormLabel className="text-sm">Last 4 digits of Aadhaar (Optional)</FormLabel>
+                                        <FormControl>
+                                          <Input 
+                                            placeholder="1234" 
+                                            maxLength={4}
+                                            {...aadhaarField} 
+                                            className="h-10"
+                                          />
+                                        </FormControl>
+                                        <FormMessage />
+                                      </FormItem>
+                                    )}
+                                  />
+                                  
+                                  <FormField
+                                    control={form.control}
+                                    name="date_of_birth"
+                                    render={({ field: dobField }) => (
+                                      <FormItem>
+                                        <FormLabel className="text-sm">Date of Birth (Optional)</FormLabel>
+                                        <FormControl>
+                                          <Input 
+                                            type="date" 
+                                            {...dobField} 
+                                            className="h-10"
+                                          />
+                                        </FormControl>
+                                        <FormMessage />
+                                      </FormItem>
+                                    )}
+                                  />
+
+                                  {createdTokenId && userRecord?.id && (
+                                    <DocumentUpload
+                                      userId={userRecord.id}
+                                      tokenId={createdTokenId}
+                                      documentType="aadhaar"
+                                      label="Aadhaar Card"
+                                      description="Upload Aadhaar card for age verification"
+                                      required={false}
+                                      onUploadComplete={(url) => setUploadedDocs(prev => ({ ...prev, aadhaar: url }))}
+                                    />
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </FormItem>
                         )}
@@ -363,7 +646,7 @@ const CitizenDashboard = () => {
                                 className="mt-1"
                               />
                             </FormControl>
-                            <div className="space-y-1">
+                            <div className="space-y-1 flex-1">
                               <FormLabel className="text-base font-medium cursor-pointer">
                                 <Accessibility className="h-4 w-4 inline mr-2" />
                                 Person with Disability
@@ -371,50 +654,124 @@ const CitizenDashboard = () => {
                               <FormDescription>
                                 Check if you have a disability for priority service.
                               </FormDescription>
+
+                              {field.value && createdTokenId && userRecord?.id && (
+                                <div className="mt-4 pt-3 border-t">
+                                  <DocumentUpload
+                                    userId={userRecord.id}
+                                    tokenId={createdTokenId}
+                                    documentType="disability_certificate"
+                                    label="Disability Certificate"
+                                    description="Upload your disability certificate"
+                                    required={true}
+                                    onUploadComplete={(url) => setUploadedDocs(prev => ({ ...prev, disability: url }))}
+                                  />
+                                </div>
+                              )}
                             </div>
                           </FormItem>
                         )}
                       />
-
-                      {/* File Upload Placeholder */}
-                      <div className="p-3 bg-background rounded-md border border-dashed">
-                        <div className="flex items-center gap-2 text-muted-foreground">
-                          <Upload className="h-4 w-4" />
-                          <span className="text-sm">Upload ID proof / Disability certificate (Optional)</span>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-1">Coming soon - document upload feature</p>
-                      </div>
 
                       <FormField
                         control={form.control}
                         name="is_emergency"
                         render={({ field }) => (
-                          <FormItem className="flex items-center justify-between p-3 bg-destructive/10 rounded-md border border-destructive/20">
-                            <div className="space-y-0.5">
-                              <FormLabel className="text-base font-medium cursor-pointer text-destructive">
-                                <AlertTriangle className="h-4 w-4 inline mr-2" />
-                                Emergency
-                              </FormLabel>
-                              <FormDescription>
-                                Enable only for genuine emergencies requiring immediate attention.
-                              </FormDescription>
+                          <FormItem className="p-3 bg-destructive/10 rounded-md border border-destructive/20">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="space-y-0.5">
+                                <FormLabel className="text-base font-medium cursor-pointer text-destructive">
+                                  <AlertTriangle className="h-4 w-4 inline mr-2" />
+                                  Emergency
+                                </FormLabel>
+                                <FormDescription>
+                                  Enable only for genuine emergencies requiring immediate attention.
+                                </FormDescription>
+                              </div>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value}
+                                  onCheckedChange={field.onChange}
+                                />
+                              </FormControl>
                             </div>
-                            <FormControl>
-                              <Switch
-                                checked={field.value}
-                                onCheckedChange={field.onChange}
-                              />
-                            </FormControl>
+
+                            {field.value && (
+                              <div className="space-y-3 pt-3 border-t border-destructive/20">
+                                <FormField
+                                  control={form.control}
+                                  name="emergency_reason"
+                                  render={({ field: reasonField }) => (
+                                    <FormItem>
+                                      <FormLabel className="text-sm text-destructive">Describe Emergency (Required)</FormLabel>
+                                      <FormControl>
+                                        <Textarea 
+                                          placeholder="e.g., Medical emergency, court hearing, etc."
+                                          rows={3}
+                                          {...reasonField}
+                                          className="resize-none"
+                                        />
+                                      </FormControl>
+                                      <FormDescription className="text-xs">
+                                        AI will analyze your reason. False claims may be rejected.
+                                      </FormDescription>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+
+                                {createdTokenId && userRecord?.id && (
+                                  <DocumentUpload
+                                    userId={userRecord.id}
+                                    tokenId={createdTokenId}
+                                    documentType="medical_report"
+                                    label="Supporting Document (Optional)"
+                                    description="Medical report, court notice, etc."
+                                    required={false}
+                                    onUploadComplete={(url) => setUploadedDocs(prev => ({ ...prev, medical: url }))}
+                                  />
+                                )}
+                              </div>
+                            )}
                           </FormItem>
                         )}
                       />
                     </div>
 
-                    <Button type="submit" className="w-full h-12 text-lg" disabled={isSubmitting}>
+                    <Button 
+                      type="submit" 
+                      className="w-full h-12 text-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg hover:shadow-xl transition-all duration-300" 
+                      disabled={isSubmitting}
+                    >
                       {isSubmitting ? 'Joining Queue...' : 'Get Token & Join Queue'}
                     </Button>
                   </form>
                 </Form>
+
+                {/* Show document upload when required */}
+                {showDocumentUpload && pendingClaimType && userRecord?.id && pendingServiceId && (
+                  <div className="mt-6">
+                    <PriorityDocumentUpload
+                      userId={userRecord.id}
+                      serviceId={pendingServiceId}
+                      claimType={pendingClaimType}
+                      onUploadComplete={() => {
+                        setShowDocumentUpload(false);
+                        setPendingClaimType(null);
+                        setPendingServiceId(null);
+                        toast({
+                          title: '✅ Document Uploaded',
+                          description: 'Your claim will be reviewed by admin. You can join queue after approval.'
+                        });
+                      }}
+                      onCancel={() => {
+                        setShowDocumentUpload(false);
+                        setPendingClaimType(null);
+                        setPendingServiceId(null);
+                      }}
+                    />
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -433,9 +790,9 @@ const CitizenDashboard = () => {
               />
             ) : (
               myTokens.map((token) => {
-                // Calculate position
-                const position = userTokens
-                  .filter(t => t.service_id === token.service_id && t.status === 'WAITING')
+                // Calculate position using all tokens
+                const position = allTokens
+                  .filter(t => t.service_id === token.service_id && t.status === 'waiting')
                   .sort((a, b) => {
                     const priorityOrder = { EMERGENCY: 0, DISABLED: 1, SENIOR: 2, NORMAL: 3 };
                     const pDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
@@ -449,8 +806,17 @@ const CitizenDashboard = () => {
                   : null;
 
                 return (
-                  <Card key={token.id} className={token.status === 'CALLED' ? 'border-primary border-2 animate-pulse' : ''}>
+                  <Card key={token.id} className={token.status === 'called' ? 'border-primary border-2 animate-pulse' : ''}>
                     <CardContent className="pt-6">
+                      {/* Counter Assignment Banner */}
+                      {token.counter_id && token.status === 'called' && (
+                        <div className="mb-4 p-4 bg-primary text-primary-foreground rounded-lg text-center">
+                          <p className="text-sm font-medium mb-2">🎯 You are assigned to</p>
+                          <p className="text-4xl font-bold">Counter {token.counters?.counter_number || '--'}</p>
+                          <p className="text-sm mt-2 opacity-90">Please proceed to the counter now!</p>
+                        </div>
+                      )}
+                      
                       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div className="space-y-2">
                           <div className="flex items-center gap-3">
@@ -464,15 +830,30 @@ const CitizenDashboard = () => {
                         </div>
 
                         <div className="flex flex-col gap-2 text-right">
-                          {token.status === 'WAITING' && (
+                          {token.status === 'waiting' && (
                             <>
-                              <div className="bg-muted p-3 rounded-lg">
-                                <p className="text-sm text-muted-foreground">Position in Queue</p>
-                                <p className="text-2xl font-bold">#{position || '--'}</p>
-                              </div>
+                              {token.counter_id ? (
+                                <>
+                                  <div className="bg-blue-50 dark:bg-blue-950 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
+                                    <p className="text-sm text-blue-600 dark:text-blue-400 font-medium">Assigned to Counter</p>
+                                    <p className="text-3xl font-bold text-blue-700 dark:text-blue-300">
+                                      {token.counters?.counter_number || '--'}
+                                    </p>
+                                  </div>
+                                  <div className="bg-muted p-3 rounded-lg">
+                                    <p className="text-sm text-muted-foreground">Position at Counter</p>
+                                    <p className="text-2xl font-bold">#{position || '--'}</p>
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="bg-muted p-3 rounded-lg">
+                                  <p className="text-sm text-muted-foreground">Position in Queue</p>
+                                  <p className="text-2xl font-bold">#{position || '--'}</p>
+                                </div>
+                              )}
                               <div className="flex items-center gap-2 text-sm">
                                 <Clock className="h-4 w-4 text-muted-foreground" />
-                                <span>Est. wait: {token.estimated_wait_minutes || '--'} min</span>
+                                <span>Est. wait: {token.estimated_wait_time || (position ? position * 10 : '--')} min</span>
                               </div>
                               {aiEstimate && (
                                 <div className="flex items-center gap-2 text-sm text-primary">
@@ -483,12 +864,12 @@ const CitizenDashboard = () => {
                               )}
                             </>
                           )}
-                          {token.status === 'CALLED' && (
+                          {token.status === 'called' && (
                             <div className="bg-primary/10 p-3 rounded-lg">
                               <p className="text-primary font-bold text-lg">Please proceed to counter</p>
                             </div>
                           )}
-                          {token.status === 'COMPLETED' && (
+                          {token.status === 'completed' && (
                             <div className="text-muted-foreground">
                               Completed at {token.completed_at && format(new Date(token.completed_at), 'HH:mm')}
                             </div>
@@ -500,6 +881,28 @@ const CitizenDashboard = () => {
                 );
               })
             )}
+          </div>
+        </TabsContent>
+
+        {/* Check Status Tab */}
+        <TabsContent value="check">
+          <div className="max-w-2xl mx-auto">
+            <Card>
+              <CardHeader>
+                <CardTitle>Check Token Status</CardTitle>
+                <CardDescription>Enter any token number to check its current status</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button
+                  onClick={() => navigate('/check-status')}
+                  className="w-full"
+                  size="lg"
+                >
+                  <FileText className="mr-2 h-5 w-5" />
+                  Go to Public Status Check
+                </Button>
+              </CardContent>
+            </Card>
           </div>
         </TabsContent>
       </Tabs>

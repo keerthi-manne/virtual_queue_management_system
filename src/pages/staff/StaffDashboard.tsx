@@ -13,7 +13,7 @@ import QueueLayout from '@/components/queue/QueueLayout';
 import LoadingState from '@/components/queue/LoadingState';
 import EmptyState from '@/components/queue/EmptyState';
 import PriorityBadge from '@/components/queue/PriorityBadge';
-import { Phone, CheckCircle, Users, Clock, BarChart3, LogOut, XCircle } from 'lucide-react';
+import { Phone, CheckCircle, Users, Clock, BarChart3, LogOut, XCircle, Send } from 'lucide-react';
 import { format, differenceInMinutes } from 'date-fns';
 
 const StaffDashboard = () => {
@@ -26,15 +26,23 @@ const StaffDashboard = () => {
   const [selectedCounter, setSelectedCounter] = useState<string>('');
   const [servedCount, setServedCount] = useState(0);
   const [totalHandleTime, setTotalHandleTime] = useState(0);
+  const [requestingTokenId, setRequestingTokenId] = useState<string | null>(null);
 
   const { offices, loading: officesLoading } = useOffices();
   const { services } = useServices(selectedOffice);
   const { counters } = useCounters(selectedOffice);
-  const { tokens: waitingTokens, loading: tokensLoading, refetch } = useTokens(selectedService, 'WAITING');
-  const { tokens: calledTokens, refetch: refetchCalled } = useTokens(selectedService, 'CALLED');
+  const { tokens: waitingTokens, loading: tokensLoading, refetch } = useTokens(selectedService, 'waiting');
+  const { tokens: calledTokens, refetch: refetchCalled } = useTokens(selectedService, 'called');
+  const { tokens: servingTokens, refetch: refetchServing } = useTokens(selectedService, 'serving');
+  const { tokens: completedTokens } = useTokens(selectedService, 'completed');
 
-  // Filter called tokens for this counter
-  const myCalledTokens = calledTokens.filter(t => t.counter_id === selectedCounter);
+  // Filter counters by selected service
+  const serviceCounters = selectedService 
+    ? counters.filter(c => c.service_id === selectedService)
+    : counters;
+
+  // Combine called and serving tokens for this counter
+  const myCalledTokens = [...calledTokens, ...servingTokens].filter(t => t.counter_id === selectedCounter);
   
   const sortedTokens = sortTokensByPriority(waitingTokens);
 
@@ -52,73 +60,232 @@ const StaffDashboard = () => {
     }
 
     const nextToken = sortedTokens[0];
-    const { error } = await supabase
-      .from('tokens')
-      .update({ 
-        status: 'CALLED', 
-        counter_id: selectedCounter, 
-        called_at: new Date().toISOString() 
-      })
-      .eq('id', nextToken.id);
+    
+    try {
+      // Update token status
+      const { error } = await supabase
+        .from('tokens')
+        .update({ 
+          status: 'called', 
+          counter_id: selectedCounter, 
+          called_at: new Date().toISOString() 
+        })
+        .eq('id', nextToken.id);
 
-    if (error) {
-      toast({ title: 'Error', description: 'Failed to call token', variant: 'destructive' });
-    } else {
-      toast({ title: 'Token Called', description: `Calling ${nextToken.token_label} - ${nextToken.citizen_name}` });
+      if (error) throw error;
+
+      // Send notifications (SMS, WhatsApp, Email)
+      try {
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/notifications/token-called`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tokenId: nextToken.id,
+            counterId: selectedCounter
+          })
+        });
+        
+        if (!response.ok) {
+          console.error('Failed to send notifications');
+        }
+      } catch (notifError) {
+        console.error('Notification error:', notifError);
+        // Don't fail the whole operation if notifications fail
+      }
+
+      toast({ 
+        title: 'Token Called', 
+        description: `Calling ${nextToken.token_label} - ${nextToken.citizen_name}. Notifications sent!` 
+      });
+      
       refetch();
       refetchCalled();
+    } catch (error) {
+      console.error('Error calling token:', error);
+      toast({ title: 'Error', description: 'Failed to call token', variant: 'destructive' });
     }
   };
 
   const handleComplete = async (token: Token) => {
+    // Calculate actual service time if service_started_at exists
+    let actualServiceTime = 0;
+    if (token.service_started_at) {
+      actualServiceTime = differenceInMinutes(new Date(), new Date(token.service_started_at));
+    }
+
     const { error } = await supabase
       .from('tokens')
       .update({ 
-        status: 'COMPLETED', 
-        completed_at: new Date().toISOString() 
+        status: 'completed', 
+        completed_at: new Date().toISOString(),
+        actual_service_time: actualServiceTime || null
       })
       .eq('id', token.id);
 
     if (error) {
       toast({ title: 'Error', description: 'Failed to complete token', variant: 'destructive' });
     } else {
-      // Calculate handle time
+      // Calculate handle time for display
       if (token.called_at) {
         const handleTime = differenceInMinutes(new Date(), new Date(token.called_at));
         setTotalHandleTime(prev => prev + handleTime);
       }
       setServedCount(prev => prev + 1);
       
-      toast({ title: 'Completed', description: `Token ${token.token_label} marked as completed` });
+      const timeMsg = actualServiceTime > 0 
+        ? `Service time: ${actualServiceTime} min` 
+        : '';
+      
+      toast({ 
+        title: 'Completed', 
+        description: `Token ${token.token_label} marked as completed. ${timeMsg}` 
+      });
       refetch();
       refetchCalled();
+      refetchServing();
     }
   };
 
-  const handleNoShow = async (token: Token) => {
+  const handleServiceStarted = async (token: Token) => {
     const { error } = await supabase
       .from('tokens')
       .update({ 
-        status: 'NO_SHOW', 
-        completed_at: new Date().toISOString() 
+        service_started_at: new Date().toISOString(),
+        status: 'serving'
       })
       .eq('id', token.id);
 
     if (error) {
-      toast({ title: 'Error', description: 'Failed to mark as no-show', variant: 'destructive' });
+      toast({ title: 'Error', description: 'Failed to start service', variant: 'destructive' });
     } else {
-      toast({ title: 'No Show', description: `Token ${token.token_label} marked as no-show` });
+      toast({ 
+        title: 'Service Started', 
+        description: `Started serving token ${token.token_label}` 
+      });
+      refetchCalled();
+      refetchServing();
+    }
+  };
+
+  const handleNoShow = async (token: Token) => {
+    try {
+      // Call the reschedule API to mark as no-show and create reschedule request
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      const response = await fetch(`${apiUrl}/reschedule/mark-no-show`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tokenId: token.id,
+          staffId: userRecord?.id,
+          reason: 'Citizen did not show up when called'
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to mark as no-show');
+      }
+
+      const data = await response.json();
+
+      toast({ 
+        title: 'No Show Marked', 
+        description: `Token ${token.token_label} marked as no-show. Reschedule request sent to ${token.citizen_name}`,
+        variant: 'default'
+      });
+      
+      // Show additional info about notifications
+      setTimeout(() => {
+        toast({
+          title: 'Notifications Sent',
+          description: 'SMS and Email sent to the citizen asking if they want to reschedule',
+        });
+      }, 1500);
+
       refetch();
       refetchCalled();
+      refetchServing();
+    } catch (error: any) {
+      console.error('Error marking no-show:', error);
+      toast({ 
+        title: 'Error', 
+        description: error.message || 'Failed to mark as no-show', 
+        variant: 'destructive' 
+      });
     }
   };
 
   const handleSignOut = async () => {
-    await signOut();
-    navigate('/auth');
+    try {
+      await signOut();
+      navigate('/auth', { replace: true });
+    } catch (error) {
+      console.error('Sign out error:', error);
+      toast({ title: 'Error', description: 'Failed to sign out', variant: 'destructive' });
+    }
   };
 
-  const avgHandleTime = servedCount > 0 ? Math.round(totalHandleTime / servedCount) : 0;
+  const handleRequestToServe = async (token: Token) => {
+    if (!userRecord?.id) {
+      toast({ title: 'Error', description: 'User ID not found', variant: 'destructive' });
+      return;
+    }
+
+    if (!selectedCounter) {
+      toast({ title: 'Error', description: 'Please select a counter first', variant: 'destructive' });
+      return;
+    }
+
+    setRequestingTokenId(token.id);
+    
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/staff-requests`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          staffId: userRecord.id,
+          tokenId: token.id,
+          counterId: selectedCounter,
+          reason: `Request to serve ${token.citizen_name} - Priority: ${token.priority}`
+        })
+      });
+
+      if (!response.ok) throw new Error('Failed to create request');
+
+      toast({
+        title: 'Request Sent',
+        description: `Your request to serve ${token.token_label} has been sent to admin for approval.`,
+      });
+    } catch (error) {
+      console.error('Error creating request:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to send request. Please try again.',
+        variant: 'destructive'
+      });
+    } finally {
+      setRequestingTokenId(null);
+    }
+  };
+
+  // Calculate average handle time from completed tokens for this counter TODAY
+  const todayCompletedForCounter = completedTokens.filter(t => {
+    const isToday = t.completed_at && new Date(t.completed_at).toDateString() === new Date().toDateString();
+    const isThisCounter = t.counter_id === selectedCounter;
+    return isToday && isThisCounter && t.called_at && t.completed_at;
+  });
+
+  const avgHandleTime = todayCompletedForCounter.length > 0
+    ? Math.round(
+        todayCompletedForCounter.reduce((total, t) => {
+          const handleTime = differenceInMinutes(new Date(t.completed_at!), new Date(t.called_at!));
+          return total + handleTime;
+        }, 0) / todayCompletedForCounter.length
+      )
+    : 0;
+
+  // Update served count to show actual completed tokens for this counter today
+  const actualServedCount = todayCompletedForCounter.length;
 
   if (officesLoading || userLoading) {
     return <QueueLayout title="Staff Dashboard"><LoadingState /></QueueLayout>;
@@ -129,15 +296,15 @@ const StaffDashboard = () => {
       title="Staff Dashboard" 
       subtitle={`Welcome, ${userRecord?.name || 'Staff'}`}
     >
-      <div className="flex justify-end mb-4">
-        <Button variant="outline" size="sm" onClick={handleSignOut}>
+      <div className="flex justify-end mb-6">
+        <Button variant="outline" size="sm" onClick={handleSignOut} className="hover-lift">
           <LogOut className="h-4 w-4 mr-2" /> Sign Out
         </Button>
       </div>
 
       <div className="space-y-6">
         {/* Filters */}
-        <Card>
+        <Card className="glass-card animate-fade-in hover-lift">
           <CardContent className="pt-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Select value={selectedOffice} onValueChange={(v) => { setSelectedOffice(v); setSelectedService(''); setSelectedCounter(''); }}>
@@ -152,10 +319,10 @@ const StaffDashboard = () => {
                   {services.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                 </SelectContent>
               </Select>
-              <Select value={selectedCounter} onValueChange={setSelectedCounter} disabled={!selectedOffice}>
+              <Select value={selectedCounter} onValueChange={setSelectedCounter} disabled={!selectedService}>
                 <SelectTrigger><SelectValue placeholder="Select Your Counter" /></SelectTrigger>
                 <SelectContent>
-                  {counters.filter(c => c.is_active).map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                  {serviceCounters.map(c => <SelectItem key={c.id} value={c.id}>Counter {c.counter_number}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -163,35 +330,59 @@ const StaffDashboard = () => {
         </Card>
 
         {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card>
-            <CardContent className="pt-6 text-center">
-              <Users className="h-8 w-8 mx-auto mb-2 text-primary" />
-              <p className="text-3xl font-bold">{sortedTokens.length}</p>
-              <p className="text-muted-foreground">Waiting</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <Card className="stat-card hover-lift animate-fade-in bg-gradient-to-br from-blue-50 via-blue-50 to-indigo-100 dark:from-blue-950/30 dark:to-indigo-950/30 border-l-4 border-blue-600 shadow-elegant hover:shadow-elegant-lg">
+            <CardContent className="pt-8 pb-6">
+              <div className="flex items-start justify-between mb-3">
+                <div className="p-3 bg-blue-600 rounded-xl shadow-lg">
+                  <Users className="h-6 w-6 text-white" />
+                </div>
+                <span className="text-xs font-semibold text-blue-600 bg-blue-100 dark:bg-blue-900/50 px-2 py-1 rounded-full">Queue</span>
+              </div>
+              <p className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-1">{sortedTokens.length}</p>
+              <p className="text-sm font-medium text-slate-600 dark:text-slate-400">People Waiting</p>
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="pt-6 text-center">
-              <Clock className="h-8 w-8 mx-auto mb-2 text-primary" />
-              <p className="text-3xl font-bold">{avgHandleTime || '--'} min</p>
-              <p className="text-muted-foreground">Avg Handle Time</p>
+          <Card className="stat-card hover-lift animate-fade-in bg-gradient-to-br from-amber-50 via-amber-50 to-orange-100 dark:from-amber-950/30 dark:to-orange-950/30 border-l-4 border-amber-600 shadow-elegant hover:shadow-elegant-lg" style={{animationDelay: '0.1s'}}>
+            <CardContent className="pt-8 pb-6">
+              <div className="flex items-start justify-between mb-3">
+                <div className="p-3 bg-amber-600 rounded-xl shadow-lg">
+                  <Clock className="h-6 w-6 text-white" />
+                </div>
+                <span className="text-xs font-semibold text-amber-600 bg-amber-100 dark:bg-amber-900/50 px-2 py-1 rounded-full">Avg</span>
+              </div>
+              <p className="text-4xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent mb-1">
+                {avgHandleTime > 0 ? avgHandleTime : '--'} {avgHandleTime > 0 && <span className="text-2xl">min</span>}
+              </p>
+              <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Handle Time</p>
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="pt-6 text-center">
-              <BarChart3 className="h-8 w-8 mx-auto mb-2 text-primary" />
-              <p className="text-3xl font-bold">{servedCount}</p>
-              <p className="text-muted-foreground">Served This Session</p>
+          <Card className="stat-card hover-lift animate-fade-in bg-gradient-to-br from-green-50 via-green-50 to-emerald-100 dark:from-green-950/30 dark:to-emerald-950/30 border-l-4 border-green-600 shadow-elegant hover:shadow-elegant-lg" style={{animationDelay: '0.2s'}}>
+            <CardContent className="pt-8 pb-6">
+              <div className="flex items-start justify-between mb-3">
+                <div className="p-3 bg-green-600 rounded-xl shadow-lg">
+                  <BarChart3 className="h-6 w-6 text-white" />
+                </div>
+                <span className="text-xs font-semibold text-green-600 bg-green-100 dark:bg-green-900/50 px-2 py-1 rounded-full">Session</span>
+              </div>
+              <p className="text-4xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent mb-1">{actualServedCount}</p>
+              <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Tokens Served</p>
             </CardContent>
           </Card>
         </div>
 
         {/* Currently Serving */}
         {myCalledTokens.length > 0 && (
-          <Card className="border-primary border-2">
-            <CardHeader>
-              <CardTitle className="text-primary">Currently Serving</CardTitle>
+          <Card className="border-4 border-purple-500 dark:border-purple-600 animate-pulse-glow animate-fade-in shadow-elegant-lg relative overflow-hidden" style={{animationDelay: '0.3s'}}>
+            <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-purple-600 via-pink-600 to-purple-600 animate-pulse" />
+            <CardHeader className="bg-gradient-to-r from-purple-50 via-pink-50 to-purple-50 dark:from-purple-950/30 dark:to-pink-950/30 border-b-2 border-purple-200 dark:border-purple-800">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-purple-600 rounded-lg animate-pulse">
+                  <Phone className="h-5 w-5 text-white" />
+                </div>
+                <CardTitle className="text-xl font-bold bg-gradient-to-r from-purple-700 to-pink-700 dark:from-purple-400 dark:to-pink-400 bg-clip-text text-transparent">Currently Serving</CardTitle>
+                <span className="ml-auto bg-purple-600 text-white text-xs font-bold px-3 py-1 rounded-full">ACTIVE</span>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
@@ -208,10 +399,37 @@ const StaffDashboard = () => {
                       <PriorityBadge priority={token.priority} />
                     </div>
                     <div className="flex gap-2">
-                      <Button size="sm" variant="destructive" onClick={() => handleNoShow(token)}>
-                        <XCircle className="h-4 w-4 mr-1" /> No Show
-                      </Button>
-                      <Button size="sm" onClick={() => handleComplete(token)}>
+                      {!token.service_started_at && (
+                        <>
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => handleServiceStarted(token)}
+                            className="border-blue-600 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950"
+                          >
+                            <Clock className="h-4 w-4 mr-1" /> Start Service
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="destructive" 
+                            onClick={() => handleNoShow(token)}
+                            className="bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700"
+                          >
+                            <XCircle className="h-4 w-4 mr-1" /> No Show
+                          </Button>
+                        </>
+                      )}
+                      {token.service_started_at && (
+                        <div className="flex items-center gap-2 text-sm text-blue-600 font-medium">
+                          <Clock className="h-4 w-4" />
+                          Serving for {differenceInMinutes(new Date(), new Date(token.service_started_at))} min
+                        </div>
+                      )}
+                      <Button 
+                        size="sm" 
+                        onClick={() => handleComplete(token)}
+                        className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+                      >
                         <CheckCircle className="h-4 w-4 mr-1" /> Complete
                       </Button>
                     </div>
@@ -228,6 +446,7 @@ const StaffDashboard = () => {
             onClick={handleCallNext} 
             disabled={!sortedTokens.length || !selectedCounter || myCalledTokens.length > 0} 
             size="lg"
+            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg hover:shadow-xl transition-all duration-300"
           >
             <Phone className="h-4 w-4 mr-2" /> Call Next Token
           </Button>
@@ -239,9 +458,12 @@ const StaffDashboard = () => {
         </div>
 
         {/* Queue */}
-        <Card>
+        <Card className="glass-card hover-lift animate-fade-in" style={{animationDelay: '0.4s'}}>
           <CardHeader>
-            <CardTitle>Waiting Queue</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-blue-600" />
+              <span className="gradient-text">Waiting Queue</span>
+            </CardTitle>
             <CardDescription>Ordered by priority (Emergency → Disabled → Senior → Normal) then join time</CardDescription>
           </CardHeader>
           <CardContent>
@@ -250,12 +472,17 @@ const StaffDashboard = () => {
             ) : (
               <div className="space-y-3">
                 {sortedTokens.map((token, idx) => (
-                  <div key={token.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors">
-                    <div className="flex items-center gap-4">
-                      <span className="text-2xl font-bold text-muted-foreground w-10">#{idx + 1}</span>
+                  <div key={token.id} className="group relative flex items-center justify-between p-5 border-2 border-slate-200 dark:border-slate-700 rounded-2xl hover:border-blue-400 dark:hover:border-blue-600 bg-gradient-to-r from-white to-slate-50 dark:from-slate-900 dark:to-slate-800 hover:shadow-lg transition-all duration-300">
+                    <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-b from-blue-600 to-indigo-600 rounded-l-2xl opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <div className="flex items-center gap-6">
+                      <div className="flex flex-col items-center">
+                        <span className="text-xs text-muted-foreground font-medium uppercase">Position</span>
+                        <span className="text-3xl font-extrabold bg-gradient-to-br from-blue-600 to-indigo-600 bg-clip-text text-transparent">#{idx + 1}</span>
+                      </div>
+                      <div className="h-12 w-px bg-slate-200 dark:bg-slate-700" />
                       <div>
-                        <p className="font-mono font-bold">{token.token_label}</p>
-                        <p className="text-sm text-muted-foreground">{token.citizen_name}</p>
+                        <p className="font-mono text-xl font-bold text-slate-900 dark:text-slate-100">{token.token_label}</p>
+                        <p className="text-sm text-slate-600 dark:text-slate-400 font-medium">{token.citizen_name}</p>
                       </div>
                       <PriorityBadge priority={token.priority} />
                     </div>
@@ -263,6 +490,15 @@ const StaffDashboard = () => {
                       <span className="text-sm text-muted-foreground">
                         Joined {format(new Date(token.joined_at), 'HH:mm')}
                       </span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleRequestToServe(token)}
+                        disabled={requestingTokenId === token.id}
+                      >
+                        <Send className="h-4 w-4 mr-1" />
+                        {requestingTokenId === token.id ? 'Requesting...' : 'Request to Serve'}
+                      </Button>
                     </div>
                   </div>
                 ))}

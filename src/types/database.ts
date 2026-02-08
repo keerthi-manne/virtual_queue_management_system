@@ -1,5 +1,5 @@
 export type Priority = 'NORMAL' | 'SENIOR' | 'DISABLED' | 'EMERGENCY';
-export type TokenStatus = 'WAITING' | 'CALLED' | 'COMPLETED' | 'NO_SHOW';
+export type TokenStatus = 'waiting' | 'called' | 'serving' | 'completed' | 'no_show';
 export type UserRole = 'USER' | 'STAFF' | 'ADMIN';
 
 export interface Office {
@@ -21,10 +21,8 @@ export interface Service {
 export interface Counter {
   id: string;
   office_id: string;
-  service_id?: string;
-  name: string;
-  is_active: boolean;
-  current_operator_id?: string;
+  service_id: string;
+  counter_number: number;
   created_at: string;
 }
 
@@ -41,6 +39,8 @@ export interface Token {
   joined_at: string;
   called_at?: string;
   completed_at?: string;
+  service_started_at?: string;
+  actual_service_time?: number;
   estimated_wait_minutes?: number;
   position_in_queue?: number;
 }
